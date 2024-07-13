@@ -1,0 +1,9 @@
+services:
+  tube:
+    image: yadomi/tube
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./public:/app/public
+      - ./feeds.txt:/app/feeds.txt
