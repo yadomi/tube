@@ -2,3 +2,5 @@ data/*
 public/*
 
 .vscode/*
+
+feeds.txt
