@@ -1,13 +1,13 @@
 {
-    "fmt": {
-        "useTabs": false,
-        "lineWidth": 180,
-        "indentWidth": 4,
-        "semiColons": true,
-        "singleQuote": true,
-        "exclude": ["./data", "./public"]
-    },
-    "tasks": {
-        "dev": "deno run  --allow-env --allow-read --allow-write --allow-net=www.youtube.com,0.0.0.0 --unstable-kv --unstable-cron  main.ts"
-    }
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 180,
+    "indentWidth": 2,
+    "semiColons": true,
+    "singleQuote": true,
+    "exclude": ["./data", "./public"]
+  },
+  "tasks": {
+    "dev": "deno run  --allow-env --allow-read --allow-write --allow-net=www.youtube.com,0.0.0.0 --unstable-kv --unstable-cron  main.ts"
+  }
 }
