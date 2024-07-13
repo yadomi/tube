@@ -10,7 +10,7 @@ RUN deno compile --allow-env --allow-read --allow-write --allow-net=www.youtube.
     mv tube /usr/local/bin/tube && \
     chmod +x /usr/local/bin/tube && date
 
-RUN mkdir -p /app & mv /src/index.eta /app/index.eta && rm -rf /src
+RUN mkdir -p /app && mv /src/index.eta /app/index.eta && rm -rf /src
 
 WORKDIR /app
 
