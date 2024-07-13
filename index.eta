@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tube</title>
+  <style type="text/css">
+    body {
+      font-family: Verdana, Geneva, sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f6f6ef;
+      color: #333;
+    }
+
+    main {
+      width: 85%;
+      margin: 24px auto;
+    }
+
+    article:hover {
+      background-color: #f6f6ef;
+    }
+
+    article {
+      border: 1px solid #e3e3e3;
+      border-radius: 4px;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 96px 1fr 1fr;
+      gap: 0px 0px;
+      grid-auto-flow: row;
+      grid-template-areas:
+        "thumbnail title title"
+        "thumbnail meta meta";
+      margin-bottom: 10px;
+    }
+
+    article h1 a {
+      color: #333;
+      text-decoration: none;
+      font-size: 16px;
+    }
+
+    article h1 a:visited {
+      color: #828282;
+    }
+
+    article h1 a:hover {
+      text-decoration: underline;
+    }
+
+    article h1 {
+      margin: 0;
+      padding: 0;
+      font-weight: normal;
+      grid-area: title;
+    }
+
+    article span {
+      font-size: 12px;
+      grid-area: meta;
+      color: #828282;
+    }
+
+    article span a {
+      color: #828282;
+      text-decoration: none;
+    }
+
+    article span a:hover {
+      text-decoration: underline;
+    }
+
+    article > a:first-child {
+      grid-area: thumbnail;
+      display: flex;
+    }
+
+    article img {
+      --height: 42px;
+      height: var(--height);
+      object-fit: cover;
+      <% /* height: calc(64px * (9/16)); */ %>
+      width: calc(var(--height) * (16/9));
+      border-radius: 4px;
+    }
+
+    button {
+      padding: 0.5rem 1rem;
+      background-color: #ff4500;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #e53900;
+    }
+
+    section {
+      display: flex;
+      justify-content: center;
+    }
+
+    form {
+      display: none;
+      flex-direction: column;
+      gap: 1rem;
+      padding: 1rem;
+    }
+
+    textarea {
+      padding: 1rem;
+      border-radius: 4px;
+      border: 1px solid #ccc;
+    }
+
+    input[type="submit"] {
+      padding: 0.5rem 1rem;
+      background-color: #ff4500;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    input[type="submit"]:hover {
+      background-color: #e53900;
+    }
+
+    aside {
+      font-size: 10px;
+      position: fixed;
+      bottom: 4px;
+      left: 4px;
+    }
+  </style>
+</head>
+
+<body>
+<% /*   <script type="module">
+    async function sleep(ms) {
+      return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    document.querySelector("form").addEventListener("submit", async event => {
+      event.preventDefault();
+
+      const text = document.querySelector("textarea").value;
+      for (const line of text.split("\n")) {
+        console.log(line);
+        const channel_id = line.split("channel_id=")[1];
+        console.log(channel_id);
+        await fetch(`/?method=add&channel_id=${channel_id}`, {
+          method: "POST"
+        });
+        await sleep(250);
+      }
+    });
+  </script> */ %>
+  <aside>Last build: <%= new Date().toISOString() %></aside>
+  <main>
+    <% for (let item of it.data) { %>
+    <% const now = new Date(item.published_at) %>
+    <% const publishedAt = new Date(item.published_at) %>
+    <% const diff = Math.floor((now - publishedAt) / (1000 * 60 * 60 * 24)) %>
+    <article data-day="<%= diff %>">
+
+      <a target="_blank" href="<%= item.link %>">
+        <img loading="lazy" src="<%= item.thumbnail %>" alt="" />
+      </a>
+
+      <h1>
+        <a target="_blank" href="<%= item.link %>">
+          <%= item.title %>
+        </a>
+      </h1>
+      <span>
+        <a target="_blank" href="<%= item.author.uri %>"><%= item.author.name %></a> -
+        <span title="<%= publishedAt.toLocaleTimeString() %>"><%= publishedAt.toLocaleDateString() %></span>
+      </span>
+    </article>
+    <% } %>
+  </main>
+</body>
+
+</html>
