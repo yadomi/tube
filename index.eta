@@ -6,12 +6,34 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Tube</title>
   <style type="text/css">
+    :root {
+      --body-bg-color: #f6f6ef;
+      --body-text-color: #333;
+      --article-bg-color: #d9d9d9;
+      --article-border-color: #e3e3e3;
+      --article-text-color: #333;
+      --article-visited-color: #828282;
+      --article-meta-color: #828282;
+    }
+
     body {
       font-family: Verdana, Geneva, sans-serif;
       margin: 0;
       padding: 0;
-      background-color: #f6f6ef;
-      color: #333;
+      background-color: var(--body-bg-color);
+      color: var(--body-text-color);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      body {
+        --body-bg-color: #020202;
+        --body-text-color: #e0e0e0;
+        --article-bg-color: #0b0b0b;
+        --article-border-color: #4a4a4a;
+        --article-text-color: #e0e0e0;
+        --article-visited-color: #cccccc;
+        --article-meta-color: #cccccc;
+      }
     }
 
     main {
@@ -20,11 +42,11 @@
     }
 
     article:hover {
-      background-color: #f6f6ef;
+      background-color: var(--article-bg-color);
     }
 
     article {
-      border: 1px solid #e3e3e3;
+      border: 1px solid var(--article-border-color);
       border-radius: 4px;
       padding: 16px;
       display: grid;
@@ -38,13 +60,13 @@
     }
 
     article h1 a {
-      color: #333;
+      color: var(--article-text-color);
       text-decoration: none;
       font-size: 16px;
     }
 
     article h1 a:visited {
-      color: #828282;
+      color: var(--article-visited-color);
     }
 
     article h1 a:hover {
@@ -61,11 +83,11 @@
     article span {
       font-size: 12px;
       grid-area: meta;
-      color: #828282;
+      color: var(--article-meta-color);
     }
 
     article span a {
-      color: #828282;
+      color: var(--article-meta-color);
       text-decoration: none;
     }
 
@@ -73,7 +95,7 @@
       text-decoration: underline;
     }
 
-    article > a:first-child {
+    article>a:first-child {
       grid-area: thumbnail;
       display: flex;
     }
@@ -87,48 +109,9 @@
       border-radius: 4px;
     }
 
-    button {
-      padding: 0.5rem 1rem;
-      background-color: #ff4500;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-
-    button:hover {
-      background-color: #e53900;
-    }
-
     section {
       display: flex;
       justify-content: center;
-    }
-
-    form {
-      display: none;
-      flex-direction: column;
-      gap: 1rem;
-      padding: 1rem;
-    }
-
-    textarea {
-      padding: 1rem;
-      border-radius: 4px;
-      border: 1px solid #ccc;
-    }
-
-    input[type="submit"] {
-      padding: 0.5rem 1rem;
-      background-color: #ff4500;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-
-    input[type="submit"]:hover {
-      background-color: #e53900;
     }
 
     aside {
@@ -137,30 +120,53 @@
       bottom: 4px;
       left: 4px;
     }
+
+    input[name="filter"][value="today"]:checked~main article[data-day="0"] {
+      display: grid;
+    }
+
+    input[name="filter"][value="week"]:checked~main article {
+      display: grid;
+    }
+
+    input[name="filter"][value="week"]:checked~.menu label[for="filter-week"],
+    input[name="filter"][value="today"]:checked~.menu label[for="filter-today"] {
+      background-color: var(--article-bg-color);
+    }
+
+    input[type="radio"] {
+      display: none;
+    }
+
+    .menu label {
+      padding: 8px;
+      cursor: pointer;
+      border-radius: 4px;
+      margin-right: 8px;
+    }
+
+    .menu label:hover {
+      background-color: var(--article-bg-color);
+    }
+
+    .menu {
+      width: 85%;
+      margin: 24px auto;
+    }
   </style>
 </head>
 
 <body>
-<% /*   <script type="module">
-    async function sleep(ms) {
-      return new Promise(resolve => setTimeout(resolve, ms));
-    }
+  <input type="radio" id="filter-today" name="filter" value="today" checked />
+  <input type="radio" id="filter-week" name="filter" value="week" />
 
-    document.querySelector("form").addEventListener("submit", async event => {
-      event.preventDefault();
+  <div class="menu">
+    <div>
+      <label for="filter-today">Today </label>
+      <label for="filter-week">Week</label>
+    </div>
+  </div>
 
-      const text = document.querySelector("textarea").value;
-      for (const line of text.split("\n")) {
-        console.log(line);
-        const channel_id = line.split("channel_id=")[1];
-        console.log(channel_id);
-        await fetch(`/?method=add&channel_id=${channel_id}`, {
-          method: "POST"
-        });
-        await sleep(250);
-      }
-    });
-  </script> */ %>
   <aside>Last build: <%= new Date().toISOString() %></aside>
   <main>
     <% for (let item of it.data) { %>
