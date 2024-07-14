@@ -49,7 +49,7 @@
       border: 1px solid var(--article-border-color);
       border-radius: 4px;
       padding: 16px;
-      display: grid;
+      display: none;
       grid-template-columns: 96px 1fr 1fr;
       gap: 0px 0px;
       grid-auto-flow: row;
@@ -103,9 +103,8 @@
     article img {
       --height: 42px;
       height: var(--height);
-      object-fit: cover;
-      <% /* height: calc(64px * (9/16)); */ %>
       width: calc(var(--height) * (16/9));
+      object-fit: cover;
       border-radius: 4px;
     }
 
@@ -170,10 +169,21 @@
   <aside>Last build: <%= new Date().toISOString() %></aside>
   <main>
     <% for (let item of it.data) { %>
-    <% const now = new Date(item.published_at) %>
-    <% const publishedAt = new Date(item.published_at) %>
-    <% const diff = Math.floor((now - publishedAt) / (1000 * 60 * 60 * 24)) %>
-    <article data-day="<%= diff %>">
+    <%
+      const now = new Date()
+      const publishedAt = new Date(item.published_at);
+      const diffInDays = Math.floor((now - publishedAt) / (1000 * 60 * 60 * 24));
+      const diffInHours = Math.floor((now - publishedAt) / (1000 * 60 * 60));
+      const diffInMinutes = Math.floor((now - publishedAt) / (1000 * 60));
+
+      const relativeUnit = diffInHours < 1 ? 'minutes' : 'hours';
+      const relativeTime = {
+        minutes: diffInMinutes,
+        hours: diffInHours
+      }[relativeUnit];
+      const rtf = new Intl.RelativeTimeFormat('en', { localeMatcher: "best fit", numeric: "always", style: "long" })
+    %>
+    <article data-day="<%= diffInDays %>">
 
       <a target="_blank" href="<%= item.link %>">
         <img loading="lazy" src="<%= item.thumbnail %>" alt="" />
@@ -186,7 +196,7 @@
       </h1>
       <span>
         <a target="_blank" href="<%= item.author.uri %>"><%= item.author.name %></a> -
-        <span title="<%= publishedAt.toLocaleTimeString() %>"><%= publishedAt.toLocaleDateString() %></span>
+        <span title="<%= publishedAt.toLocaleTimeString() %>"><%= rtf.format(relativeTime * -1, relativeUnit) %></span>
       </span>
     </article>
     <% } %>
