@@ -1,9 +1,9 @@
-import { parse } from 'https://deno.land/x/xml/mod.ts';
-import { DB } from 'https://deno.land/x/sqlite/mod.ts';
-import { Eta } from 'https://deno.land/x/eta/src/index.ts';
-import Logger from 'https://deno.land/x/logger/logger.ts';
+import { parse } from "https://deno.land/x/xml/mod.ts";
+import { DB } from "https://deno.land/x/sqlite/mod.ts";
+import { Eta } from "https://deno.land/x/eta/src/index.ts";
+import Logger from "https://deno.land/x/logger/logger.ts";
 
-import { join } from 'https://deno.land/std/path/mod.ts';
+import { join } from "https://deno.land/std/path/mod.ts";
 
 const logger = new Logger();
 
@@ -43,6 +43,8 @@ const SETTINGS = {
    *    ((60 * (60 * 0.5)) / 500) = 1 query every 3.6 seconds
    */
   FETCH_INTERVAL: Number(Deno.env.get("TUBE_FETCH_INTERVAL")) || 0.5,
+
+  YOUTUBE_FRONTEND: Deno.env.get("TUBE_YOUTUBE_FRONTEND") || "https://www.youtube.com/watch?v=",
 };
 
 type FeedEntry = {
@@ -70,8 +72,8 @@ type Feed = {
 await Deno.mkdir(SETTINGS.DATA_PATH, { recursive: true });
 await Deno.mkdir(SETTINGS.PUBLIC_PATH, { recursive: true });
 
-const db = new DB(join(SETTINGS.DATA_PATH, 'db.sqlite3'));
-const kv = await Deno.openKv(join(SETTINGS.DATA_PATH, './kv.store'));
+const db = new DB(join(SETTINGS.DATA_PATH, "db.sqlite3"));
+const kv = await Deno.openKv(join(SETTINGS.DATA_PATH, "./kv.store"));
 
 db.execute(`
   CREATE TABLE IF NOT EXISTS channels (
@@ -242,7 +244,8 @@ async function cronHandlerFeedBuilder() {
 
     response.push({
       title: video.title,
-      link: video.link["@href"],
+      video_id: video["yt:videoId"],
+      link: `${SETTINGS.YOUTUBE_FRONTEND}${video["yt:videoId"]}`,
       published_at: video.published,
       author: video.author,
       thumbnail: video["media:group"]["media:thumbnail"]["@url"],
@@ -293,11 +296,11 @@ async function migrate() {
 
 await migrate();
 
-Deno.cron('UPDATE_QUEUE', SETTINGS.CRON_QUEUE_UPDATE, cronHandlerUpdateQueue);
-Deno.cron('FEED_BUILDER', SETTINGS.CRON_FEED_BUILDER, cronHandlerFeedBuilder);
+Deno.cron("UPDATE_QUEUE", SETTINGS.CRON_QUEUE_UPDATE, cronHandlerUpdateQueue);
+Deno.cron("FEED_BUILDER", SETTINGS.CRON_FEED_BUILDER, cronHandlerFeedBuilder);
 kv.listenQueue(queueHandlerRSSFetcher);
 
 cronHandlerFeedBuilder();
 cronHandlerUpdateQueue();
 
-await Deno.serve({ port: SETTINGS.PORT, hostname: '0.0.0.0' }, httpHandler);
+await Deno.serve({ port: SETTINGS.PORT, hostname: "0.0.0.0" }, httpHandler);
