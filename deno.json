@@ -1,10 +1,6 @@
 {
   "fmt": {
-    "useTabs": false,
-    "lineWidth": 180,
-    "indentWidth": 2,
-    "semiColons": true,
-    "singleQuote": false,
+    "lineWidth": 200,
     "exclude": ["./data", "./public"]
   },
   "tasks": {
