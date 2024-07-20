@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tube</title>
+  <style type="text/css">
+    :root {
+      --body-bg-color: #f6f6ef;
+      --body-text-color: #333;
+      --article-bg-color: #d9d9d9;
+      --article-text-color: #333;
+      --article-visited-color: #828282;
+      --article-meta-color: #828282;
+    }
+
+    #dark-mode:checked~main {
+      --body-bg-color: #020202;
+      --body-text-color: #e0e0e0;
+      --article-bg-color: #0b0b0b;
+      --article-text-color: #e0e0e0;
+      --article-visited-color: #cccccc;
+      --article-meta-color: #777;
+    }
+
+    main {
+      background-color: var(--body-bg-color);
+      color: var(--body-text-color);
+      padding: 0 10%;
+    }
+
+    body {
+      font-family: Menlo, Consolas, Monaco, Liberation Mono, Lucida Console, monospace;
+      margin: 0;
+      padding: 0;
+    }
+
+
+    @media (max-width: 480px) {
+
+      main {
+        padding: 0 2%;
+      }
+    }
+
+    main>h1 {
+      font-size: 16px;
+      font-weight: normal;
+      padding-bottom: 8px;
+      margin-top: 12px;
+      margin-bottom: 12px;
+      font-variant: small-caps;
+    }
+
+    .article:hover {
+      background-color: var(--article-bg-color);
+    }
+
+    .article {
+      border-radius: 4px;
+      display: grid;
+      grid-template-columns: 96px 1fr 1fr;
+      gap: 0px 0px;
+      grid-auto-flow: row;
+      grid-template-areas:
+        "thumbnail title title actions"
+        "thumbnail meta meta actions";
+      margin-bottom: 10px;
+      text-decoration: none;
+    }
+
+    .article h2 {
+      color: var(--article-text-color);
+      text-decoration: none;
+      font-size: 16px;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      font-weight: normal;
+      grid-area: title;
+    }
+
+    .article:visited h2 {
+      color: var(--article-visited-color);
+    }
+
+    .article span {
+      font-size: 12px;
+      grid-area: meta;
+      color: var(--article-meta-color);
+    }
+
+    .article img {
+      grid-area: thumbnail;
+      display: flex;
+      --height: 42px;
+      height: var(--height);
+      width: calc(var(--height) * (16/9));
+      object-fit: cover;
+      border-radius: 4px;
+    }
+
+    .menu {
+      display: flex;
+      justify-content: center;
+      padding-top: 24px;
+    }
+
+    aside {
+      font-size: 10px;
+      position: fixed;
+      bottom: 4px;
+      left: 4px;
+    }
+
+    .menu label {
+      padding: 8px;
+      cursor: pointer;
+      border-radius: 4px;
+      margin-right: 8px;
+    }
+
+    .menu label:hover {
+      background-color: var(--article-bg-color);
+    }
+
+    input[type="checkbox"] {
+      display: none;
+    }
+
+    #hide-shorts:checked~main .article[data-is-short="true"] {
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+  <input type="checkbox" id="dark-mode" />
+  <input type="checkbox" id="hide-shorts" />
+
+  <main>
+    <section class="menu">
+      <label for="dark-mode">🌙</label>
+      <label for="hide-shorts">🩳</label>
+    </section>
+    <aside>Last build: <%= new Date().toISOString() %></aside>
+    <%
+      let previousDate = null;
+
+      for (let item of it.data) {
+        const now = new Date()
+        const publishedAt = new Date(item.published_at);
+
+        const diffInHours = Math.floor((now - publishedAt) / (1000 * 60 * 60));
+        const diffInMinutes = Math.floor((now - publishedAt) / (1000 * 60));
+
+        const relativeUnit = diffInHours < 1 ? 'minutes' : 'hours';
+        const relativeTime = { minutes: diffInMinutes, hours: diffInHours }[relativeUnit];
+
+        const rtf = new Intl.RelativeTimeFormat('en', { localeMatcher: "best fit", numeric: "always", style: "long" })
+        if (previousDate !== publishedAt.getDay()) {
+    %>
+
+    <h1>
+      <%= publishedAt.toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }) %>
+    </h1>
+
+    <%
+          previousDate = publishedAt.getDay();
+        }
+    %>
+
+    <a class="article" target="_blank" href="<%= item.link %>" data-is-in-watchlist="<%= item.is_in_watchlist %>" data-is-short="<%= item.is_short %>">
+      <img loading="lazy" src="<%= item.thumbnail %>" alt="" />
+      <h2>
+        <%= item.title %>
+      </h2>
+      <span>
+        <%= item.author.name %> -
+        <span title="<%= publishedAt.toLocaleTimeString() %>"><%= rtf.format(relativeTime * -1, relativeUnit) %></span>
+      </span>
+    </a>
+    <% } %>
+  </main>
+</body>
+
+</html>

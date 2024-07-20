@@ -32,17 +32,16 @@ const SETTINGS = {
   CRON_QUEUE_UPDATE: Deno.env.get("TUBE_CRON_QUEUE_UPDATE") || "0 * * * *",
 
   /**
-   * The interval in hour to fetch the RSS feed for each channel,
-   * this is to avoid to make too many requests in a short period of time.
-   * Make sure the value is equal or less than the CRON_QUEUE_UPDATE, otherwise the queue will never be fully emptied
-   * Example:
-   *    If you have 500 channels and the setting is set to 1, all channel will be fetched in 1 hour,
-   *    each espaced by about 7.2 seconds ((60 * (60 * 1)) / 500) = 7.2.
+   * Fetch interval in seconds, used to add a delay between each channel fetch to avoid rate limit
+   * or requests bottleneck.
    *
-   *    If you want all channels to be fetched in 30 minutes, set this to 0.5
-   *    ((60 * (60 * 0.5)) / 500) = 1 query every 3.6 seconds
+   * In case there is a lot of channels to fetch,
+   * makes sure the total time to fetch all channels is lower than the CRON_QUEUE_UPDATE interval.
+   * Ex:
+   *  3600 channels with 1 second interval will take 1 hours to fetch all channels.
+   *  1000 channels with 1 second interval will take ~16 minutes to fetch all channels.
    */
-  FETCH_INTERVAL: Number(Deno.env.get("TUBE_FETCH_INTERVAL")) || 0.5,
+  FETCH_INTERVAL: Number(Deno.env.get("TUBE_FETCH_INTERVAL")) || 1,
 
   YOUTUBE_FRONTEND: Deno.env.get("TUBE_YOUTUBE_FRONTEND") ||
     "https://www.youtube.com/watch?v=",
@@ -86,15 +85,25 @@ db.execute(`
     id  TEXT PRIMARY KEY,
     channel_id TEXT,
     published_at TEXT
-  )
+  );
+  CREATE TABLE IF NOT EXISTS watchlist (
+    id  TEXT PRIMARY KEY,
+    video_id TEXT,
+    channel_id TEXT
+  );
 `);
+
+enum PostMethod {
+  AddChannel = "add_channel",
+  AddToWatchlist = "add_to_watchlist",
+}
 
 const postHandler = async (req: Request) => {
   const params = new URL(req.url).searchParams;
 
-  // ?method=add&channel_id=UCYcJNtSv9jSCB0tWMb09O_Q
+  // ?method=add_channel&channel_id=UCYcJNtSv9jSCB0tWMb09O_Q
   switch (params.get("method")) {
-    case "add": {
+    case PostMethod.AddChannel: {
       const id = params.get("channel_id");
       if (!id) {
         return new Response("channel_id is required", { status: 400 });
@@ -110,6 +119,30 @@ const postHandler = async (req: Request) => {
       await Deno.writeTextFile(SETTINGS.FEEDS_PATH, `${id}\n`, {
         append: true,
       });
+
+      return new Response("OK", { status: 200 });
+    }
+    case PostMethod.AddToWatchlist: {
+      const video_id = params.get("video_id");
+      const channel_id = params.get("channel_id");
+
+      if (!video_id || !channel_id) {
+        return new Response("video_id and channel_id are required", { status: 400 });
+      }
+
+      const exists = db.query("SELECT * FROM watchlist WHERE video_id = ? AND channel_id = ?", [
+        video_id,
+        channel_id,
+      ]);
+
+      if (exists.length > 0) {
+        return new Response("ALREADY_EXISTS", { status: 200 });
+      }
+
+      db.query(
+        "INSERT INTO watchlist (video_id, channel_id) VALUES (?, ?)",
+        [video_id, channel_id],
+      );
 
       return new Response("OK", { status: 200 });
     }
@@ -147,8 +180,8 @@ function cronHandlerUpdateQueue() {
   const channels = db.query(
     "SELECT * FROM channels WHERE status = 'fetched' OR status IS NULL ORDER BY fetched_at ASC",
   ) as [string, string][];
-  const delay = ((60 * (60 * SETTINGS.FETCH_INTERVAL)) / channels.length) *
-    1000;
+
+  const delay =  SETTINGS.FETCH_INTERVAL * 1000;
 
   for (const channel of channels) {
     const d = delay * channels.indexOf(channel);
@@ -156,16 +189,11 @@ function cronHandlerUpdateQueue() {
     db.query("UPDATE channels SET status = 'queued' WHERE id = ?", [
       channel[0],
     ]);
-    logger.info(
-      `[cronHandlerUpdateQueue] Channel "${channel[0]}" to queue, will be fetched at ${
-        new Date(
-          Date.now() + d,
-        ).toISOString()
-      }`,
-    );
   }
 
+  const total = (delay * channels.length) / 1000 / 60;
   logger.info(`[cronHandlerUpdateQueue] Added ${channels.length} channek to queue`);
+  logger.info(`[cronHandlerUpdateQueue] Update will take roughly ${total} minutes`);
 }
 
 async function queueHandlerRSSFetcher({ channel_id }: { channel_id: string }) {
@@ -239,8 +267,10 @@ async function cronHandlerFeedBuilder() {
 
   const response = [];
   const videos = db.query(
-    "SELECT * FROM videos ORDER BY published_at DESC limit 300;",
+    "SELECT * FROM videos ORDER BY published_at DESC limit 500;",
   ) as [string, string, string][];
+
+  const watchlist = db.query("SELECT * FROM watchlist") as [string, string, string][];
 
   const cache = new Map<string, Feed>();
   for (const [id, channel_id] of videos) {
@@ -282,12 +312,15 @@ async function cronHandlerFeedBuilder() {
       published_at: video.published,
       author: video.author,
       thumbnail: video["media:group"]["media:thumbnail"]["@url"],
+      is_in_watchlist: watchlist.some((w) => w[1] === video["yt:videoId"]),
+      is_short: Math.random() > 0.5,
     });
   }
 
-  const template = await Deno.readTextFile("./index.eta");
-  const eta = new Eta();
-  const html = await eta.renderString(template, { data: response });
+  response.sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
+
+  const eta = new Eta({ views: "./templates" });
+  const html = await eta.render("./index.eta", { data: response });
   await Deno.writeFile(
     join(SETTINGS.PUBLIC_PATH, "./index.html"),
     new TextEncoder().encode(html),
