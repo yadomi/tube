@@ -312,8 +312,8 @@ async function cronHandlerFeedBuilder() {
       published_at: video.published,
       author: video.author,
       thumbnail: video["media:group"]["media:thumbnail"]["@url"],
-      is_in_watchlist: watchlist.some((w) => w[1] === video["yt:videoId"]),
-      is_short: Math.random() > 0.5,
+      is_in_watchlist: watchlist.some(([videoId]) => videoId === video["yt:videoId"]),
+      is_short: Math.random() > 0.5, // TODO: Implement the logic to determine if the video is a short or not
     });
   }
 
