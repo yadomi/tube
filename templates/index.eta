@@ -82,7 +82,7 @@
     }
 
     .article:visited h2 {
-      color: var(--article-visited-color);
+      color: var(--article-visited-color) !important;
     }
 
     .article span {
@@ -129,7 +129,7 @@
       display: none;
     }
 
-    #hide-shorts:checked~main .article[data-is-short="true"] {
+    #filter-shorts:checked~main .article[data-is-short="true"] {
       display: none;
     }
   </style>
@@ -137,12 +137,15 @@
 
 <body>
   <input type="checkbox" id="dark-mode" />
-  <input type="checkbox" id="hide-shorts" />
+  <input type="checkbox" id="filter-shorts" />
 
   <main>
     <section class="menu">
       <label for="dark-mode">🌙</label>
-      <label for="hide-shorts">🩳</label>
+<% if (it.settings.ALLOW_SHORTS) { %>
+<label for="filter-shorts">🩳</label>
+<% } %>
+
     </section>
     <aside>Last build: <%= new Date().toISOString() %></aside>
     <%
