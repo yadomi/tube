@@ -43,6 +43,11 @@ const SETTINGS = {
    */
   FETCH_INTERVAL: Number(Deno.env.get("TUBE_FETCH_INTERVAL")) || 1,
 
+  /**
+   * If true, will allow shorts to be processed and added in the feed.
+   */
+  ALLOW_SHORTS: !!JSON.parse(Deno.env.get("TUBE_ALLOW_SHORTS") || "false"),
+
   YOUTUBE_FRONTEND: Deno.env.get("TUBE_YOUTUBE_FRONTEND") ||
     "https://www.youtube.com/watch?v=",
 };
@@ -75,19 +80,22 @@ await Deno.mkdir(SETTINGS.PUBLIC_PATH, { recursive: true });
 const db = new DB(join(SETTINGS.DATA_PATH, "db.sqlite3"));
 const kv = await Deno.openKv(join(SETTINGS.DATA_PATH, "./kv.store"));
 
+const startedAt = Date.now();
+
 db.execute(`
   CREATE TABLE IF NOT EXISTS channels (
-    id  TEXT PRIMARY KEY,
-    fetched_at TEXT
+    id TEXT PRIMARY KEY,
+    fetched_at TEXT,
     status TEXT
   );
   CREATE TABLE IF NOT EXISTS videos (
-    id  TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY,
     channel_id TEXT,
-    published_at TEXT
+    published_at TEXT,
+    is_short
   );
   CREATE TABLE IF NOT EXISTS watchlist (
-    id  TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY,
     video_id TEXT,
     channel_id TEXT
   );
@@ -176,12 +184,39 @@ function httpHandler(req: Request) {
   }
 }
 
+const Helpers = {
+
+  /**
+   * Check if a video is a short or a regular video.
+   * A short will return 200 status code, a regular video will return a redirect.
+   *
+   * Doing that way is a workaround to avoid using the youtube API, however it may be detected and blocked by youtube
+   * when initiating the app with a lot of channels.
+   *
+   * XXX: Detecting short could be done by doing some analysis on the thumbnail.
+   **/
+  async is_short(videoId: string) {
+    const response = await fetch(`https://www.youtube.com/shorts/${videoId}`, {
+      redirect: "manual",
+      headers: {
+        "User-Agent": "curl/7.64.1" // this avoid consent page redirect
+       }
+    });
+    return response.status === 200;
+  },
+
+  is_past(date: string) {
+    return new Date(date).getTime() < startedAt;
+  }
+
+};
+
 function cronHandlerUpdateQueue() {
   const channels = db.query(
     "SELECT * FROM channels WHERE status = 'fetched' OR status IS NULL ORDER BY fetched_at ASC",
   ) as [string, string][];
 
-  const delay =  SETTINGS.FETCH_INTERVAL * 1000;
+  const delay = SETTINGS.FETCH_INTERVAL * 1000;
 
   for (const channel of channels) {
     const d = delay * channels.indexOf(channel);
@@ -192,7 +227,7 @@ function cronHandlerUpdateQueue() {
   }
 
   const total = (delay * channels.length) / 1000 / 60;
-  logger.info(`[cronHandlerUpdateQueue] Added ${channels.length} channek to queue`);
+  logger.info(`[cronHandlerUpdateQueue] Added ${channels.length} channel to queue`);
   logger.info(`[cronHandlerUpdateQueue] Update will take roughly ${total} minutes`);
 }
 
@@ -235,21 +270,45 @@ async function queueHandlerRSSFetcher({ channel_id }: { channel_id: string }) {
       if (exists.length > 0) {
         continue;
       }
-      db.query(
-        "INSERT INTO videos (id, channel_id, published_at) VALUES (?, ?, ?)",
+
+      if (Helpers.is_past(video.published)) {
+/*         logger.info(
+          `[queueHandlerRSSFetcher] Skipped past video "${video.title}" (${video["yt:videoId"]}) for channel ${data.feed.title} (${channel_id})`,
+        ); */
+        continue;
+      }
+
+      const is_short = await Helpers.is_short(video["yt:videoId"]);
+      if (!SETTINGS.ALLOW_SHORTS && is_short) {
+        continue;
+      }
+
+      try {
+        db.query(
+        "INSERT INTO videos (id, channel_id, published_at, is_short) VALUES (?, ?, ?, ?)",
         [
           video["yt:videoId"],
           channel_id,
           video.published,
+          is_short,
         ],
       );
+      } catch(e) {
+        logger.error(
+          `[queueHandlerRSSFetcher] Failed to insert video "${video.title}" (${video['yt:videoId']}) for channel ${channel_id}`,
+          e,
+        );
+        return;
+      }
+
+
       logger.info(
-        `[queueHandlerRSSFetcher] Added video "${video.title} (${video["yt:videoId"]})" / "${data.feed.title}" (${channel_id})`,
+        `[queueHandlerRSSFetcher] Added ${is_short ? "short" : "video"} "${video.title} (${video["yt:videoId"]})" / "${data.feed.title}" (${channel_id})`,
       );
     }
   } catch (e) {
     logger.error(
-      `[queueHandlerRSSFetcher] Failed to add video for ${channel_id}`,
+      `[queueHandlerRSSFetcher] Failed to add video for channel ${channel_id}`,
       e,
     );
     return;
@@ -259,6 +318,8 @@ async function queueHandlerRSSFetcher({ channel_id }: { channel_id: string }) {
     "UPDATE channels SET status = 'fetched', fetched_at = datetime('now') WHERE id = ?",
     [channel_id],
   );
+
+
 }
 
 async function cronHandlerFeedBuilder() {
@@ -267,13 +328,13 @@ async function cronHandlerFeedBuilder() {
 
   const response = [];
   const videos = db.query(
-    "SELECT * FROM videos ORDER BY published_at DESC limit 500;",
+    "SELECT id, channel_id, is_short FROM videos ORDER BY published_at DESC limit 500;",
   ) as [string, string, string][];
 
   const watchlist = db.query("SELECT * FROM watchlist") as [string, string, string][];
 
   const cache = new Map<string, Feed>();
-  for (const [id, channel_id] of videos) {
+  for (const [id, channel_id, is_short] of videos) {
     /**
      * Set data to cache if not cached yet
      */
@@ -313,14 +374,14 @@ async function cronHandlerFeedBuilder() {
       author: video.author,
       thumbnail: video["media:group"]["media:thumbnail"]["@url"],
       is_in_watchlist: watchlist.some(([videoId]) => videoId === video["yt:videoId"]),
-      is_short: Math.random() > 0.5, // TODO: Implement the logic to determine if the video is a short or not
+      is_short: !!is_short,
     });
   }
 
   response.sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
 
   const eta = new Eta({ views: "./templates" });
-  const html = await eta.render("./index.eta", { data: response });
+  const html = await eta.render("./index.eta", { data: response, settings: SETTINGS });
   await Deno.writeFile(
     join(SETTINGS.PUBLIC_PATH, "./index.html"),
     new TextEncoder().encode(html),
@@ -371,6 +432,12 @@ await migrate();
 
 Deno.cron("UPDATE_QUEUE", SETTINGS.CRON_QUEUE_UPDATE, cronHandlerUpdateQueue);
 Deno.cron("FEED_BUILDER", SETTINGS.CRON_FEED_BUILDER, cronHandlerFeedBuilder);
+
+/**
+ * FIXME: Deno queue doesn't have any concurrency mecanism (yet?).
+ * This is bad because if the queue is too big, all task will be executed concurrently
+ * and it may cause rate limit or requests bottleneck.
+ */
 kv.listenQueue(queueHandlerRSSFetcher);
 
 cronHandlerFeedBuilder();
