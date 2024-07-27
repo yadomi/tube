@@ -2,20 +2,19 @@ import { parse } from "https://deno.land/x/xml/mod.ts";
 import { Eta } from "https://deno.land/x/eta/src/index.ts";
 import Logger from "https://deno.land/x/logger/logger.ts";
 import { DOMParser } from "https://deno.land/x/deno_dom/deno-dom-wasm.ts";
-
 import { join } from "https://deno.land/std/path/mod.ts";
 
+const UA = "curl/7.64.1";
 const logger = new Logger();
 
 const SETTINGS = {
   PORT: Number(Deno.env.get("TUBE_PORT")) || 8000,
 
-  FEEDS_PATH: Deno.env.get("TUBE_FEEDS_PATH") || "./feeds.txt",
-
   /**
    * Path to store internal data
    */
   DATA_PATH: "./data",
+  SUBSCRIPTIONS_FILE: "./data/subscriptions",
 
   /**
    * Path to store public files
@@ -80,17 +79,7 @@ const HTTPResponse = {
   NOT_FOUND: new Response("Not Found", { status: 404 }),
   METHOD_NOT_ALLOWED: new Response("Method Not Allowed", { status: 405 }),
   INTERNAL_SERVER_ERROR: new Response("Internal Server Error", { status: 500 }),
-}
-
-const UA = "curl/7.64.1";
-
-await Deno.mkdir(SETTINGS.DATA_PATH, { recursive: true });
-await Deno.mkdir(SETTINGS.PUBLIC_PATH, { recursive: true });
-
-const eta = new Eta({ views: "./templates" });
-const kv = await Deno.openKv(join(SETTINGS.DATA_PATH, "./kv.store"));
-
-const startedAt = Date.now();
+};
 
 enum PostMethod {
   AddById = "add_by_id",
@@ -104,10 +93,10 @@ const Manager = {
     const channels = await Helpers.get_channels();
 
     if (channels.indexOf(id) !== -1) {
-      return HTTPResponse.ALREADY_EXISTS
+      return HTTPResponse.ALREADY_EXISTS;
     }
 
-    await Deno.writeTextFile(SETTINGS.FEEDS_PATH, `${id}\n`, {
+    await Deno.writeTextFile(SETTINGS.SUBSCRIPTIONS_FILE, `${id}\n`, {
       append: true,
     });
 
@@ -147,12 +136,12 @@ const Manager = {
         return Manager.add_by_url(link.getAttribute("href"));
       }
 
-      return HTTPResponse.NOT_FOUND
+      return HTTPResponse.NOT_FOUND;
     }
 
     return HTTPResponse.BAD_REQUEST("Invalid URL");
-  }
-}
+  },
+};
 
 const postHandler = async (req: Request) => {
   const params = new URL(req.url).searchParams;
@@ -166,10 +155,9 @@ const postHandler = async (req: Request) => {
 
       try {
         return Manager.add_by_id(id);
-      } catch (e) {
+      } catch (_e) {
         return HTTPResponse.INTERNAL_SERVER_ERROR;
       }
-
     }
     case PostMethod.AddByURL: {
       const url = params.get("url");
@@ -179,10 +167,9 @@ const postHandler = async (req: Request) => {
 
       try {
         return Manager.add_by_url(url);
-      } catch (e) {
+      } catch (_e) {
         return HTTPResponse.INTERNAL_SERVER_ERROR;
       }
-
     }
     case PostMethod.AddToWatchlist: {
       const video_id = params.get("video_id");
@@ -209,7 +196,7 @@ const postHandler = async (req: Request) => {
       const index = channels.indexOf(id);
       if (index > -1) {
         channels.splice(index, 1);
-        await Deno.writeTextFile(SETTINGS.FEEDS_PATH, channels.join("\n"));
+        await Deno.writeTextFile(SETTINGS.SUBSCRIPTIONS_FILE, channels.join("\n"));
       }
 
       // Cleanup KV and FS
@@ -248,7 +235,7 @@ const getHandler = async (req: Request) => {
     }
     case "/manage": {
       const channels = await Helpers.get_channels();
-      const data: {id: string, title: string, last_at: string}[] = [];
+      const data: { id: string; title: string; last_at: string }[] = [];
 
       for (const channel_id of channels) {
         try {
@@ -258,7 +245,7 @@ const getHandler = async (req: Request) => {
             title: rss.feed.title,
             last_at: Array.isArray(rss.feed.entry) ? rss.feed.entry[0].published : rss.feed.entry.published,
           });
-        } catch (e) {
+        } catch (_e) {
           data.push({
             id: channel_id,
             title: "N/A (not fetched yet)",
@@ -299,15 +286,14 @@ function httpHandler(req: Request) {
 }
 
 const Helpers = {
-
   /**
    * Get all channels ids from the feeds file
-   **/
+   */
   async get_channels() {
     return new TextDecoder()
-      .decode(await Deno.readFile(SETTINGS.FEEDS_PATH))
+      .decode(await Deno.readFile(SETTINGS.SUBSCRIPTIONS_FILE))
       .split(/\r?\n/)
-      .filter(v => v !== "");
+      .filter((v) => v !== "");
   },
 
   /**
@@ -318,7 +304,7 @@ const Helpers = {
    * when initiating the app with a lot of channels.
    *
    * XXX: Detecting short could be done by doing some analysis on the thumbnail.
-   **/
+   */
   async is_short(videoId: string) {
     const response = await fetch(`https://www.youtube.com/shorts/${videoId}`, {
       redirect: "manual",
@@ -340,17 +326,17 @@ const Helpers = {
     const [, number, unit] = match;
 
     const mapping = {
-      s: v => v * 1000,
-      sec: v => v * 1000,
+      s: (v) => v * 1000,
+      sec: (v) => v * 1000,
 
-      m: v => v * 60 * 1000,
-      min: v => v * 60 * 1000,
+      m: (v) => v * 60 * 1000,
+      min: (v) => v * 60 * 1000,
 
-      h: v => v * 60 * 60 * 1000,
-      hour: v => v * 60 * 60 * 1000,
+      h: (v) => v * 60 * 60 * 1000,
+      hour: (v) => v * 60 * 60 * 1000,
 
-      d: v => v * 24 * 60 * 60 * 1000,
-      day: v => v * 24 * 60 * 60 * 1000,
+      d: (v) => v * 24 * 60 * 60 * 1000,
+      day: (v) => v * 24 * 60 * 60 * 1000,
     } as Record<string, (v: number) => number>;
 
     return unit in mapping ? mapping[unit](parseFloat(number)) : 0;
@@ -435,20 +421,18 @@ async function queueHandlerRSSFetcher({ channel_id }: { channel_id: string }) {
           },
           {
             expireIn: Helpers.ms("7d"),
-          }
+          },
         );
       } catch (e) {
         logger.error(
           `[queueHandlerRSSFetcher] Failed to insert video "${video.title}" (${video["yt:videoId"]}) for channel ${channel_id}`,
-          e
+          e,
         );
         return;
       }
 
       logger.info(
-        `[queueHandlerRSSFetcher] Added ${is_short ? "short" : "video"} "${video.title} (${video["yt:videoId"]})" / "${
-          data.feed.title
-        }" (${channel_id})`
+        `[queueHandlerRSSFetcher] Added ${is_short ? "short" : "video"} "${video.title} (${video["yt:videoId"]})" / "${data.feed.title}" (${channel_id})`,
       );
     }
   } catch (e) {
@@ -463,13 +447,15 @@ async function cronHandlerFeedBuilder() {
 
   const response = [];
 
-  const videos = kv.list<{channel_id: string, is_short: boolean}>({ prefix: ["video"] });
+  const videos = kv.list<{ channel_id: string; is_short: boolean }>({ prefix: ["video"] });
 
   const cache = new Map<string, Feed>();
-  for await (const {
-    key,
-    value: { channel_id, is_short },
-  } of videos) {
+  for await (
+    const {
+      key,
+      value: { channel_id, is_short },
+    } of videos
+  ) {
     const id = key.at(-1);
     /**
      * Set data to cache if not cached yet
@@ -494,7 +480,7 @@ async function cronHandlerFeedBuilder() {
     }
 
     const entries = Array.isArray(feed.feed.entry) ? feed.feed.entry : [feed.feed.entry];
-    const video = entries.find(entry => entry["yt:videoId"] === id);
+    const video = entries.find((entry) => entry["yt:videoId"] === id);
 
     if (!video) {
       continue;
@@ -523,7 +509,19 @@ async function cronHandlerFeedBuilder() {
  * Main
  */
 
-// await migrate();
+await Deno.mkdir(SETTINGS.DATA_PATH, { recursive: true });
+await Deno.mkdir(SETTINGS.PUBLIC_PATH, { recursive: true });
+
+try {
+  await Deno.stat(SETTINGS.SUBSCRIPTIONS_FILE);
+} catch (_e) {
+  await Deno.writeTextFile(SETTINGS.SUBSCRIPTIONS_FILE, "");
+}
+
+const eta = new Eta({ views: "./templates" });
+const kv = await Deno.openKv(join(SETTINGS.DATA_PATH, "./kv.store"));
+
+const startedAt = Date.now();
 
 Deno.cron("UPDATE_QUEUE", SETTINGS.CRON_QUEUE_UPDATE, cronHandlerUpdateQueue);
 Deno.cron("FEED_BUILDER", SETTINGS.CRON_FEED_BUILDER, cronHandlerFeedBuilder);
