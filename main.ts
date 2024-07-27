@@ -72,13 +72,25 @@ type Feed = {
   };
 };
 
+const Cors = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "POST, ",
+    "Access-Control-Allow-Headers": "*",
+}
+
+const ResponseHeaders = {
+  headers: {
+    ...Cors
+  }
+}
+
 const HTTPResponse = {
-  OK: new Response("OK", { status: 200 }),
-  ALREADY_EXISTS: new Response("ALREADY_EXISTS", { status: 409 }),
-  BAD_REQUEST: (reason: string) => new Response("Bad Request: " + reason, { status: 400 }),
-  NOT_FOUND: new Response("Not Found", { status: 404 }),
-  METHOD_NOT_ALLOWED: new Response("Method Not Allowed", { status: 405 }),
-  INTERNAL_SERVER_ERROR: new Response("Internal Server Error", { status: 500 }),
+  OK: new Response("OK", { status: 200, ...ResponseHeaders }),
+  ALREADY_EXISTS: new Response("ALREADY_EXISTS", { status: 409, ...ResponseHeaders }),
+  BAD_REQUEST: (reason: string) => new Response("Bad Request: " + reason, { status: 400, ...ResponseHeaders }),
+  NOT_FOUND: new Response("Not Found", { status: 404, ...ResponseHeaders }),
+  METHOD_NOT_ALLOWED: new Response("Method Not Allowed", { status: 405, ...ResponseHeaders }),
+  INTERNAL_SERVER_ERROR: new Response("Internal Server Error", { status: 500, ...ResponseHeaders }),
 };
 
 enum PostMethod {
@@ -121,7 +133,11 @@ const Manager = {
       return Manager.add_by_id(matches.channel_id);
     }
 
-    if (matches.username || matches.video_id) {
+    if (matches.video_id) {
+      return HTTPResponse.BAD_REQUEST("URL of a video is not supported yet");
+    }
+
+    if (matches.username) {
       const response = await fetch(url, {
         headers: {
           "User-Agent": UA,
@@ -130,10 +146,11 @@ const Manager = {
       const html = await response.text();
       const parser = new DOMParser();
       const doc = parser.parseFromString(html, "text/html");
-      const link = doc.querySelector("link[rel='canonical']");
+      const element = doc.querySelector("link[rel='canonical']");
+      const link = element?.getAttribute("href");
 
       if (link) {
-        return Manager.add_by_url(link.getAttribute("href"));
+        return Manager.add_by_url(link);
       }
 
       return HTTPResponse.NOT_FOUND;
@@ -161,6 +178,7 @@ const postHandler = async (req: Request) => {
     }
     case PostMethod.AddByURL: {
       const url = params.get("url");
+
       if (!url) {
         return HTTPResponse.BAD_REQUEST("url is required");
       }
@@ -170,6 +188,7 @@ const postHandler = async (req: Request) => {
       } catch (_e) {
         return HTTPResponse.INTERNAL_SERVER_ERROR;
       }
+
     }
     case PostMethod.AddToWatchlist: {
       const video_id = params.get("video_id");
@@ -271,7 +290,7 @@ const handlers = {
 };
 
 function httpHandler(req: Request) {
-  logger.info(`[httpGandler] ${req.method} ${req.url}`);
+  logger.info(`[httpHandler] ${req.method} ${req.url}`);
   const method = req.method as "GET" | "POST";
   try {
     if (method in handlers) {
