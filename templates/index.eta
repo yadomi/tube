@@ -20,7 +20,7 @@
       --body-text-color: #e0e0e0;
       --article-bg-color: #0b0b0b;
       --article-text-color: #e0e0e0;
-      --article-visited-color: #cccccc;
+      --article-visited-color: #444444;
       --article-meta-color: #777;
     }
 
