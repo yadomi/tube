@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+</head>
+<body>
+<h1>manage</h1>
+<table>
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Title</th>
+      <th>Last released video</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+
+    <% it.data.forEach(function(channel){ %>
+    <tr>
+      <%
+        const TIME_UNITS = [
+        { name: 'year', ms: 12 * 4 * 7 * 24 * 60 * 60 * 1000 },
+        { name: 'month', ms: 4 * 7 * 24 * 60 * 60 * 1000 },
+        { name: 'week', ms: 7 * 24 * 60 * 60 * 1000 },
+        { name: 'day', ms: 24 * 60 * 60 * 1000 },
+        { name: 'hour', ms: 60 * 60 * 1000 },
+        { name: 'minute', ms: 60 * 1000 },
+        { name: 'second', ms: 1000 }
+        ];
+
+        function unit(x) {
+            x = Math.abs(x);
+            return TIME_UNITS.find(unit => x >= unit.ms).name;
+        }
+        const rtf = new Intl.RelativeTimeFormat('en');
+        const relative = Date.now() - new Date(channel.last_at).getTime()
+      %>
+      <td><%= channel.id %></td>
+      <td>
+        <a target="_blank" href="https://youtube.com/channel/<%= channel.id %>">
+            <%= channel.title %>
+        </a>
+      </td>
+      <td><%= channel.last_at %> - <%= rtf.format(Math.floor(relative * -1 / TIME_UNITS.find(u => u.name === unit(relative)).ms), unit(relative)) %></td>
+      <td>
+        <form method="post" action="/?method=delete_by_id&channel_id=<%= channel.id %>&redirect=/manage" class="inline">
+          <button type="submit">
+            Delete
+          </button>
+        </form>
+      </td>
+    </tr>
+    <% }) %>
+
+  </tbody>
+</table>
+</body>
+</html>

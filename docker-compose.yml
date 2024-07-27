@@ -1,8 +1,11 @@
 services:
   tube:
     image: yadomi/tube
+    user: 1000:1000
     ports:
       - "8000:8000"
+    environment:
+      - CRON_QUEUE_UPDATE="*/30 * * * *"
     volumes:
       - ./data:/app/data
       - ./public:/app/public

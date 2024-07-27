@@ -1,7 +1,7 @@
 import { parse } from "https://deno.land/x/xml/mod.ts";
-import { DB } from "https://deno.land/x/sqlite/mod.ts";
 import { Eta } from "https://deno.land/x/eta/src/index.ts";
 import Logger from "https://deno.land/x/logger/logger.ts";
+import { DOMParser } from "https://deno.land/x/deno_dom/deno-dom-wasm.ts";
 
 import { join } from "https://deno.land/std/path/mod.ts";
 
@@ -48,8 +48,7 @@ const SETTINGS = {
    */
   ALLOW_SHORTS: !!JSON.parse(Deno.env.get("TUBE_ALLOW_SHORTS") || "false"),
 
-  YOUTUBE_FRONTEND: Deno.env.get("TUBE_YOUTUBE_FRONTEND") ||
-    "https://www.youtube.com/watch?v=",
+  YOUTUBE_FRONTEND: Deno.env.get("TUBE_YOUTUBE_FRONTEND") || "https://www.youtube.com/watch?v=",
 };
 
 type FeedEntry = {
@@ -74,94 +73,209 @@ type Feed = {
   };
 };
 
+const HTTPResponse = {
+  OK: new Response("OK", { status: 200 }),
+  ALREADY_EXISTS: new Response("ALREADY_EXISTS", { status: 409 }),
+  BAD_REQUEST: (reason: string) => new Response("Bad Request: " + reason, { status: 400 }),
+  NOT_FOUND: new Response("Not Found", { status: 404 }),
+  METHOD_NOT_ALLOWED: new Response("Method Not Allowed", { status: 405 }),
+  INTERNAL_SERVER_ERROR: new Response("Internal Server Error", { status: 500 }),
+}
+
+const UA = "curl/7.64.1";
+
 await Deno.mkdir(SETTINGS.DATA_PATH, { recursive: true });
 await Deno.mkdir(SETTINGS.PUBLIC_PATH, { recursive: true });
 
-const db = new DB(join(SETTINGS.DATA_PATH, "db.sqlite3"));
+const eta = new Eta({ views: "./templates" });
 const kv = await Deno.openKv(join(SETTINGS.DATA_PATH, "./kv.store"));
 
 const startedAt = Date.now();
 
-db.execute(`
-  CREATE TABLE IF NOT EXISTS channels (
-    id TEXT PRIMARY KEY,
-    fetched_at TEXT,
-    status TEXT
-  );
-  CREATE TABLE IF NOT EXISTS videos (
-    id TEXT PRIMARY KEY,
-    channel_id TEXT,
-    published_at TEXT,
-    is_short
-  );
-  CREATE TABLE IF NOT EXISTS watchlist (
-    id TEXT PRIMARY KEY,
-    video_id TEXT,
-    channel_id TEXT
-  );
-`);
-
 enum PostMethod {
-  AddChannel = "add_channel",
+  AddById = "add_by_id",
+  AddByURL = "add_by_url",
   AddToWatchlist = "add_to_watchlist",
+  DeleteById = "delete_by_id",
+}
+
+const Manager = {
+  async add_by_id(id: string): Promise<Response> {
+    const channels = await Helpers.get_channels();
+
+    if (channels.indexOf(id) !== -1) {
+      return HTTPResponse.ALREADY_EXISTS
+    }
+
+    await Deno.writeTextFile(SETTINGS.FEEDS_PATH, `${id}\n`, {
+      append: true,
+    });
+
+    await Helpers.enqueue(id, 0);
+
+    return HTTPResponse.OK;
+  },
+  async add_by_url(url: string): Promise<Response> {
+    const re = [
+      /(?:youtu\.be|youtube\.com)\/@(?<username>\w+)/,
+      /(?:youtu\.be|youtube\.com)\/(?:shorts|embed)\/(?<video_id>\w+)/,
+      /(?:youtu\.be|youtube\.com)\/watch\?v=(?<video_id>\w+)/,
+      /(?:youtu\.be|youtube\.com)\/channel\/(?<channel_id>[\w-]+)/,
+    ];
+
+    const matches = re.reduce((sum, r) => {
+      const match = r.exec(url);
+      return match ? Object.assign(sum, match.groups) : sum;
+    }, {} as { [key in "username" | "channel_id" | "video_id"]?: string });
+
+    if (matches.channel_id) {
+      return Manager.add_by_id(matches.channel_id);
+    }
+
+    if (matches.username || matches.video_id) {
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": UA,
+        },
+      });
+      const html = await response.text();
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+      const link = doc.querySelector("link[rel='canonical']");
+
+      if (link) {
+        return Manager.add_by_url(link.getAttribute("href"));
+      }
+
+      return HTTPResponse.NOT_FOUND
+    }
+
+    return HTTPResponse.BAD_REQUEST("Invalid URL");
+  }
 }
 
 const postHandler = async (req: Request) => {
   const params = new URL(req.url).searchParams;
 
-  // ?method=add_channel&channel_id=UCYcJNtSv9jSCB0tWMb09O_Q
   switch (params.get("method")) {
-    case PostMethod.AddChannel: {
+    case PostMethod.AddById: {
       const id = params.get("channel_id");
       if (!id) {
         return new Response("channel_id is required", { status: 400 });
       }
 
-      const exists = db.query("SELECT * FROM channels WHERE id = ?", [id]);
-      if (exists.length > 0) {
-        return new Response("ALREADY_EXISTS", { status: 200 });
+      try {
+        return Manager.add_by_id(id);
+      } catch (e) {
+        return HTTPResponse.INTERNAL_SERVER_ERROR;
       }
 
-      db.query("INSERT INTO channels (id) VALUES (?)", [id]);
+    }
+    case PostMethod.AddByURL: {
+      const url = params.get("url");
+      if (!url) {
+        return HTTPResponse.BAD_REQUEST("url is required");
+      }
 
-      await Deno.writeTextFile(SETTINGS.FEEDS_PATH, `${id}\n`, {
-        append: true,
-      });
+      try {
+        return Manager.add_by_url(url);
+      } catch (e) {
+        return HTTPResponse.INTERNAL_SERVER_ERROR;
+      }
 
-      return new Response("OK", { status: 200 });
     }
     case PostMethod.AddToWatchlist: {
       const video_id = params.get("video_id");
-      const channel_id = params.get("channel_id");
 
-      if (!video_id || !channel_id) {
-        return new Response("video_id and channel_id are required", { status: 400 });
+      if (!video_id) {
+        return HTTPResponse.BAD_REQUEST("video_id is required");
       }
 
-      const exists = db.query("SELECT * FROM watchlist WHERE video_id = ? AND channel_id = ?", [
-        video_id,
-        channel_id,
-      ]);
-
-      if (exists.length > 0) {
-        return new Response("ALREADY_EXISTS", { status: 200 });
+      const record = await kv.get(["watchlist", video_id]);
+      if (record.value !== null) {
+        return HTTPResponse.ALREADY_EXISTS;
       }
 
-      db.query(
-        "INSERT INTO watchlist (video_id, channel_id) VALUES (?, ?)",
-        [video_id, channel_id],
-      );
-
+      await kv.set(["watchlist", video_id], { addedAt: new Date() });
       return new Response("OK", { status: 200 });
+    }
+    case PostMethod.DeleteById: {
+      const id = params.get("channel_id");
+      if (!id) {
+        return HTTPResponse.BAD_REQUEST("channel_id is required");
+      }
+
+      const channels = await Helpers.get_channels();
+      const index = channels.indexOf(id);
+      if (index > -1) {
+        channels.splice(index, 1);
+        await Deno.writeTextFile(SETTINGS.FEEDS_PATH, channels.join("\n"));
+      }
+
+      // Cleanup KV and FS
+      const rss = JSON.parse(await Deno.readTextFile(`./data/${id}.json`)) as Feed;
+      const entries = Array.isArray(rss.feed.entry) ? rss.feed.entry : [rss.feed.entry];
+      for (const entry of entries) {
+        await kv.delete(["video", entry["yt:videoId"]]);
+      }
+      await Deno.remove(`./data/${id}.json`);
+      await kv.delete(["channel", id]);
+
+      const redirect = params.get("redirect");
+
+      if (redirect) {
+        const headers = new Headers({
+          location: new URL(req.url).origin + redirect,
+        });
+        return new Response(null, {
+          status: 302,
+          headers,
+        });
+      }
+
+      return HTTPResponse.OK;
     }
   }
 
-  return new Response("Not Found", { status: 404 });
+  return HTTPResponse.METHOD_NOT_ALLOWED;
 };
 
-const getHandler = async () => {
-  const html = await Deno.open(join(SETTINGS.PUBLIC_PATH, "index.html"));
-  return new Response(html.readable, { status: 200 });
+const getHandler = async (req: Request) => {
+  switch (new URL(req.url).pathname) {
+    case "/": {
+      const html = await Deno.open(join(SETTINGS.PUBLIC_PATH, "index.html"));
+      return new Response(html.readable, { status: 200 });
+    }
+    case "/manage": {
+      const channels = await Helpers.get_channels();
+      const data: {id: string, title: string, last_at: string}[] = [];
+
+      for (const channel_id of channels) {
+        try {
+          const rss = JSON.parse(await Deno.readTextFile(`./data/${channel_id}.json`)) as Feed;
+          data.push({
+            id: channel_id,
+            title: rss.feed.title,
+            last_at: Array.isArray(rss.feed.entry) ? rss.feed.entry[0].published : rss.feed.entry.published,
+          });
+        } catch (e) {
+          data.push({
+            id: channel_id,
+            title: "N/A (not fetched yet)",
+            last_at: new Date(0).toISOString(),
+          });
+        }
+      }
+
+      data.sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime());
+
+      const html = await eta.render("./manage.eta", { data });
+      return new Response(html, { status: 200, headers: { "Content-Type": "text/html" } });
+    }
+    default: {
+      return HTTPResponse.NOT_FOUND;
+    }
+  }
 };
 
 const handlers = {
@@ -177,14 +291,24 @@ function httpHandler(req: Request) {
       return handlers[method](req);
     }
 
-    return new Response("Method Not Allowed", { status: 405 });
+    return HTTPResponse.METHOD_NOT_ALLOWED;
   } catch (error) {
     logger.error("Error", error);
-    return new Response("Internal Server Error", { status: 500 });
+    return HTTPResponse.INTERNAL_SERVER_ERROR;
   }
 }
 
 const Helpers = {
+
+  /**
+   * Get all channels ids from the feeds file
+   **/
+  async get_channels() {
+    return new TextDecoder()
+      .decode(await Deno.readFile(SETTINGS.FEEDS_PATH))
+      .split(/\r?\n/)
+      .filter(v => v !== "");
+  },
 
   /**
    * Check if a video is a short or a regular video.
@@ -199,35 +323,65 @@ const Helpers = {
     const response = await fetch(`https://www.youtube.com/shorts/${videoId}`, {
       redirect: "manual",
       headers: {
-        "User-Agent": "curl/7.64.1" // this avoid consent page redirect
-       }
+        "User-Agent": UA,
+      },
     });
     return response.status === 200;
   },
 
   is_past(date: string) {
-    return new Date(date).getTime() < startedAt;
-  }
+    return new Date(date).getTime() < startedAt - 24 * 60 * 60 * 1000;
+  },
 
+  ms(value: string): number {
+    const match = value.match(/([0-9.]+)([a-z]+)/);
+    if (!match) return 0;
+
+    const [, number, unit] = match;
+
+    const mapping = {
+      s: v => v * 1000,
+      sec: v => v * 1000,
+
+      m: v => v * 60 * 1000,
+      min: v => v * 60 * 1000,
+
+      h: v => v * 60 * 60 * 1000,
+      hour: v => v * 60 * 60 * 1000,
+
+      d: v => v * 24 * 60 * 60 * 1000,
+      day: v => v * 24 * 60 * 60 * 1000,
+    } as Record<string, (v: number) => number>;
+
+    return unit in mapping ? mapping[unit](parseFloat(number)) : 0;
+  },
+
+  enqueue(channel_id: string, delay: number) {
+    return kv
+      .atomic()
+      .set(["channel", channel_id], { queuedAt: new Date() }, { expireIn: Helpers.ms("1d") })
+      .enqueue({ channel_id }, { delay })
+      .commit();
+  },
 };
 
-function cronHandlerUpdateQueue() {
-  const channels = db.query(
-    "SELECT * FROM channels WHERE status = 'fetched' OR status IS NULL ORDER BY fetched_at ASC",
-  ) as [string, string][];
+async function cronHandlerUpdateQueue() {
+  const channels = await Helpers.get_channels();
 
   const delay = SETTINGS.FETCH_INTERVAL * 1000;
+  const stats = { added: 0 };
 
   for (const channel of channels) {
+    const record = await kv.get(["channel", channel]);
+    if (record.value) continue;
+
     const d = delay * channels.indexOf(channel);
-    kv.enqueue({ channel_id: channel[0] }, { delay: d });
-    db.query("UPDATE channels SET status = 'queued' WHERE id = ?", [
-      channel[0],
-    ]);
+    await Helpers.enqueue(channel, d);
+    stats.added++;
   }
 
-  const total = (delay * channels.length) / 1000 / 60;
-  logger.info(`[cronHandlerUpdateQueue] Added ${channels.length} channel to queue`);
+  const total = (delay * stats.added) / 1000 / 60;
+  logger.info(`[cronHandlerUpdateQueue] Added ${stats.added} channel to queue`);
   logger.info(`[cronHandlerUpdateQueue] Update will take roughly ${total} minutes`);
 }
 
@@ -235,46 +389,34 @@ async function queueHandlerRSSFetcher({ channel_id }: { channel_id: string }) {
   let data: Feed;
   const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${channel_id}`;
 
+  await kv.delete(["channel", channel_id]);
+
   try {
     const rss = await fetch(url);
     const xml = await rss.text();
     data = parse(xml) as unknown as Feed;
-    await Deno.writeTextFile(
-      `./data/${channel_id}.json`,
-      JSON.stringify(data, null, 2),
-    );
-    logger.info(
-      `[queueHandlerRSSFetcher] Fetched RSS for "${data.feed.title}" (${channel_id})`,
-    );
+    await Deno.writeTextFile(`./data/${channel_id}.json`, JSON.stringify(data, null, 2));
+    logger.info(`[queueHandlerRSSFetcher] Fetched RSS for "${data.feed.title}" (${channel_id})`);
   } catch (e) {
-    logger.error(
-      `[queueHandlerRSSFetcher] Failed to fetch RSS for ${channel_id}`,
-      e,
-    );
+    logger.error(`[queueHandlerRSSFetcher] Failed to fetch RSS for ${channel_id}`, e);
     return;
   }
 
   try {
     if (!data.feed.entry) {
-      logger.info(
-        `[queueHandlerRSSFetcher] No videos found for "${data.feed.title}" (${channel_id})`,
-      );
+      logger.info(`[queueHandlerRSSFetcher] No videos found for "${data.feed.title}" (${channel_id})`);
       return;
     }
 
     const videos = Array.isArray(data.feed.entry) ? data.feed.entry : [data.feed.entry];
     for (const video of videos) {
-      const exists = db.query("SELECT * FROM videos WHERE id = ?", [
-        video["yt:videoId"],
-      ]);
-      if (exists.length > 0) {
+      const record = await kv.get(["video", video["yt:videoId"]]);
+
+      if (record.value !== null) {
         continue;
       }
 
       if (Helpers.is_past(video.published)) {
-/*         logger.info(
-          `[queueHandlerRSSFetcher] Skipped past video "${video.title}" (${video["yt:videoId"]}) for channel ${data.feed.title} (${channel_id})`,
-        ); */
         continue;
       }
 
@@ -284,42 +426,35 @@ async function queueHandlerRSSFetcher({ channel_id }: { channel_id: string }) {
       }
 
       try {
-        db.query(
-        "INSERT INTO videos (id, channel_id, published_at, is_short) VALUES (?, ?, ?, ?)",
-        [
-          video["yt:videoId"],
-          channel_id,
-          video.published,
-          is_short,
-        ],
-      );
-      } catch(e) {
+        await kv.set(
+          ["video", video["yt:videoId"]],
+          {
+            channel_id,
+            published_at: video.published,
+            is_short: is_short,
+          },
+          {
+            expireIn: Helpers.ms("7d"),
+          }
+        );
+      } catch (e) {
         logger.error(
-          `[queueHandlerRSSFetcher] Failed to insert video "${video.title}" (${video['yt:videoId']}) for channel ${channel_id}`,
-          e,
+          `[queueHandlerRSSFetcher] Failed to insert video "${video.title}" (${video["yt:videoId"]}) for channel ${channel_id}`,
+          e
         );
         return;
       }
 
-
       logger.info(
-        `[queueHandlerRSSFetcher] Added ${is_short ? "short" : "video"} "${video.title} (${video["yt:videoId"]})" / "${data.feed.title}" (${channel_id})`,
+        `[queueHandlerRSSFetcher] Added ${is_short ? "short" : "video"} "${video.title} (${video["yt:videoId"]})" / "${
+          data.feed.title
+        }" (${channel_id})`
       );
     }
   } catch (e) {
-    logger.error(
-      `[queueHandlerRSSFetcher] Failed to add video for channel ${channel_id}`,
-      e,
-    );
+    logger.error(`[queueHandlerRSSFetcher] Failed to add video for channel ${channel_id}`, e);
     return;
   }
-
-  db.query(
-    "UPDATE channels SET status = 'fetched', fetched_at = datetime('now') WHERE id = ?",
-    [channel_id],
-  );
-
-
 }
 
 async function cronHandlerFeedBuilder() {
@@ -327,22 +462,21 @@ async function cronHandlerFeedBuilder() {
   const now = Date.now();
 
   const response = [];
-  const videos = db.query(
-    "SELECT id, channel_id, is_short FROM videos ORDER BY published_at DESC limit 500;",
-  ) as [string, string, string][];
 
-  const watchlist = db.query("SELECT * FROM watchlist") as [string, string, string][];
+  const videos = kv.list<{channel_id: string, is_short: boolean}>({ prefix: ["video"] });
 
   const cache = new Map<string, Feed>();
-  for (const [id, channel_id, is_short] of videos) {
+  for await (const {
+    key,
+    value: { channel_id, is_short },
+  } of videos) {
+    const id = key.at(-1);
     /**
      * Set data to cache if not cached yet
      */
     if (!cache.has(channel_id)) {
       try {
-        const data = JSON.parse(
-          await Deno.readTextFile(`./data/${channel_id}.json`),
-        );
+        const data = JSON.parse(await Deno.readTextFile(`./data/${channel_id}.json`));
         cache.set(channel_id, data);
       } catch (e) {
         logger.error(`[cronHandlerFeedBuilder] Failed to read data from file for ${channel_id}`, e);
@@ -360,7 +494,7 @@ async function cronHandlerFeedBuilder() {
     }
 
     const entries = Array.isArray(feed.feed.entry) ? feed.feed.entry : [feed.feed.entry];
-    const video = entries.find((entry) => entry["yt:videoId"] === id);
+    const video = entries.find(entry => entry["yt:videoId"] === id);
 
     if (!video) {
       continue;
@@ -373,62 +507,23 @@ async function cronHandlerFeedBuilder() {
       published_at: video.published,
       author: video.author,
       thumbnail: video["media:group"]["media:thumbnail"]["@url"],
-      is_in_watchlist: watchlist.some(([videoId]) => videoId === video["yt:videoId"]),
-      is_short: !!is_short,
+      // is_in_watchlist: watchlist.some(([videoId]) => videoId === video["yt:videoId"]),
+      is_short,
     });
   }
 
   response.sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
 
-  const eta = new Eta({ views: "./templates" });
   const html = await eta.render("./index.eta", { data: response, settings: SETTINGS });
-  await Deno.writeFile(
-    join(SETTINGS.PUBLIC_PATH, "./index.html"),
-    new TextEncoder().encode(html),
-  );
+  await Deno.writeFile(join(SETTINGS.PUBLIC_PATH, "./index.html"), new TextEncoder().encode(html));
   logger.info(`[cronHandlerFeedBuilder] Feed built in ${Date.now() - now}ms`);
-}
-
-async function migrate() {
-  const feeds = new TextDecoder().decode(
-    await Deno.readFile(SETTINGS.FEEDS_PATH),
-  ).split(/\r?\n/);
-  const stats = { added: 0, removed: 0 };
-
-  const stored = new Set(
-    (db.query("SELECT id FROM channels") as [string][]).map((c) => c[0]),
-  );
-
-  for (const id of feeds) {
-    if (!id) continue;
-
-    if (stored.has(id)) {
-      stored.delete(id);
-      continue;
-    }
-
-    const exists = db.query("SELECT * FROM channels WHERE id = ?", [id]);
-    if (exists.length > 0) {
-      continue;
-    }
-
-    db.query("INSERT INTO channels (id) VALUES (?)", [id]);
-    stats.added++;
-  }
-
-  for (const id of stored) {
-    db.query("DELETE FROM channels WHERE id = ?", [id]);
-    stats.removed++;
-  }
-
-  logger.info(`[migrate] Added ${stats.added} channels, removed ${stats.removed} channels`);
 }
 
 /**
  * Main
  */
 
-await migrate();
+// await migrate();
 
 Deno.cron("UPDATE_QUEUE", SETTINGS.CRON_QUEUE_UPDATE, cronHandlerUpdateQueue);
 Deno.cron("FEED_BUILDER", SETTINGS.CRON_FEED_BUILDER, cronHandlerFeedBuilder);
