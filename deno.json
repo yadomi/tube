@@ -4,6 +4,7 @@
     "exclude": ["./data", "./public"]
   },
   "tasks": {
-    "run": "deno run  --allow-env --allow-read --allow-write --allow-net=www.youtube.com,youtube.com,0.0.0.0 --unstable-kv --unstable-cron main.ts"
+    "run": "deno run  --allow-env --allow-read --allow-write --allow-net=www.youtube.com,youtube.com,0.0.0.0 --unstable-kv --unstable-cron main.ts",
+    "lock": "deno cache --lock=deno.lock --lock-write main.ts"
   }
 }
