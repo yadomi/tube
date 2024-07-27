@@ -7,14 +7,16 @@ import { join } from "https://deno.land/std/path/mod.ts";
 const UA = "curl/7.64.1";
 const logger = new Logger();
 
+const DATA_PATH = Deno.env.get("TUBE_DATA_PATH") || "./data";
+
 const SETTINGS = {
   PORT: Number(Deno.env.get("TUBE_PORT")) || 8000,
 
   /**
    * Path to store internal data
    */
-  DATA_PATH: "./data",
-  SUBSCRIPTIONS_FILE: "./data/subscriptions",
+  DATA_PATH,
+  SUBSCRIPTIONS_FILE: join(DATA_PATH, "subscriptions"),
 
   /**
    * Path to store public files
@@ -48,7 +50,9 @@ const SETTINGS = {
   ALLOW_SHORTS: !!JSON.parse(Deno.env.get("TUBE_ALLOW_SHORTS") || "false"),
 
   YOUTUBE_FRONTEND: Deno.env.get("TUBE_YOUTUBE_FRONTEND") || "https://www.youtube.com/watch?v=",
-};
+} as const;
+
+
 
 type FeedEntry = {
   "yt:videoId": string;
