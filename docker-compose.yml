@@ -7,6 +7,5 @@ services:
     environment:
       - CRON_QUEUE_UPDATE="*/30 * * * *"
     volumes:
-      - ./data:/app/data
-      - ./public:/app/public
-      - ./feeds.txt:/app/feeds.txt
+      - ./data:/app/data # internal data used by Tube (eg: database, user settings ect...)
+      - ./public:/app/public # public data used by Tube (eg: generated index.html ect...)
