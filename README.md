@@ -27,3 +27,12 @@ https://github.com/yadomi/tube/blob/65c407ecdeda765b7356a02d34ccc3c54e121dc1/mai
 To run the app localy without a docker container:
 
     deno task dev
+
+# FAQ
+
+- **Do I need a Youtube API Key ?**
+    - No, Tube does not rely on the Youtube API and only use RSS feed from the channel page
+- **Do I need a Youtube/Google Account**
+    - No, since Tube use public RSS feed, no Google account is required. This is a nice alternative to build a subscription feed without a Google/Youtube account.
+- **Does it support multiple users ?**
+    - No, Tube is designed to be very simple, in fact it doesn't even support any user as there is no concept of user. You can however run multiple instance of it with a different data path and port and/or protect them behind a reverse proxy or similar
