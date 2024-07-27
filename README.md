@@ -30,9 +30,9 @@ To run the app localy without a docker container:
 
 # FAQ
 
-- **Do I need a Youtube API Key ?**
-    - No, Tube does not rely on the Youtube API and only use RSS feed from the channel page
-- **Do I need a Youtube/Google Account**
-    - No, since Tube use public RSS feed, no Google account is required. This is a nice alternative to build a subscription feed without a Google/Youtube account.
-- **Does it support multiple users ?**
-    - No, Tube is designed to be very simple, in fact it doesn't even support any user as there is no concept of user. You can however run multiple instance of it with a different data path and port and/or protect them behind a reverse proxy or similar
+- **Do I need a YouTube API Key?**
+    - No, Tube does not rely on the YouTube API and only uses the RSS feed from the channel page.
+- **Do I need a YouTube/Google Account?**
+    - No, since Tube uses public RSS feeds, no Google account is required. This is a nice alternative to building a subscription feed without a Google/YouTube account.
+- **Does it support multiple users?**
+    - No, Tube is designed to be very simple. In fact, it doesn't even support any users as there is no concept of users. However, you can run multiple instances of it with different data paths and ports and/or protect them behind a reverse proxy or similar.
