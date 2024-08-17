@@ -16,21 +16,21 @@
   </style>
 </head>
 <body>
-<h1>manage</h1>
-<table>
-  <thead>
-    <tr>
-      <th>ID</th>
-      <th>Title</th>
-      <th>Last released video</th>
-      <th>Actions</th>
-    </tr>
-  </thead>
-  <tbody>
+  <h1>manage</h1>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Title</th>
+        <th>Last released video</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
 
-    <% it.data.forEach(function(channel){ %>
-    <tr>
-      <%
+      <% it.data.forEach(function(channel){ %>
+      <tr>
+        <%
         const TIME_UNITS = [
         { name: 'year', ms: 12 * 4 * 7 * 24 * 60 * 60 * 1000 },
         { name: 'month', ms: 4 * 7 * 24 * 60 * 60 * 1000 },
@@ -48,24 +48,58 @@
         const rtf = new Intl.RelativeTimeFormat('en');
         const relative = Date.now() - new Date(channel.last_at).getTime()
       %>
-      <td><%= channel.id %></td>
-      <td>
-        <a target="_blank" href="https://youtube.com/channel/<%= channel.id %>">
+        <td><%= channel.id %></td>
+        <td>
+          <a target="_blank" href="https://youtube.com/channel/<%= channel.id %>">
             <%= channel.title %>
-        </a>
-      </td>
-      <td><%= channel.last_at %> - <%= rtf.format(Math.floor(relative * -1 / TIME_UNITS.find(u => u.name === unit(relative)).ms), unit(relative)) %></td>
-      <td>
-        <form method="post" action="/?method=delete_by_id&channel_id=<%= channel.id %>&redirect=/manage" class="inline">
-          <button type="submit">
+          </a>
+          </td>
+          <td><%= channel.last_at %> - <%= rtf.format(Math.floor(relative * -1 / TIME_UNITS.find(u => u.name === unit(relative)).ms), unit(relative)) %></td>
+          <td>
+          <button type="button" data-method="delete_by_id" data-reload data-channel_id="<%= channel.id%>">
             Delete
           </button>
-        </form>
-      </td>
-    </tr>
-    <% }) %>
+          <label>
+            Notify
+            <input type="checkbox" data-method="set_notify_state" data-channel_id="<%= channel.id%>" <% if (channel.notify) { %> checked <% } %> />
+          </label>
+          </td>
+          </tr>
+          <% }) %>
 
-  </tbody>
-</table>
+    </tbody>
+    </table>
+  <script type="text/javascript">
+    (() => {
+
+      document.body.addEventListener('click', async (e) => {
+        if (e.target.dataset.method) {
+          const url = new URLSearchParams();
+
+          for (const key in e.target.dataset) {
+            url.append(key, e.target.dataset[key].toString());
+          }
+
+          if (e.target.type === 'checkbox') {
+            url.append('value', e.target.checked.toString());
+          }
+
+          const response = await fetch(`/?` + url.toString(), {
+            method: 'POST',
+          });
+
+          if (response.ok) {
+            if ("reload" in e.target.dataset) {
+              location.reload();
+            }
+          } else {
+            console.error(response.statusText);
+          }
+
+        }
+
+      });
+    })()
+  </script>
 </body>
 </html>

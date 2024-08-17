@@ -6,6 +6,7 @@ import { join } from "https://deno.land/std/path/mod.ts";
 
 const UA = "curl/7.64.1";
 const logger = new Logger();
+const startedAt = Date.now();
 
 const DATA_PATH = Deno.env.get("TUBE_DATA_PATH") || "./data";
 
@@ -50,9 +51,9 @@ const SETTINGS = {
   ALLOW_SHORTS: !!JSON.parse(Deno.env.get("TUBE_ALLOW_SHORTS") || "false"),
 
   YOUTUBE_FRONTEND: Deno.env.get("TUBE_YOUTUBE_FRONTEND") || "https://www.youtube.com/watch?v=",
+
+  GOTIFY_URL: Deno.env.get("TUBE_GOTIFY_URL") || false,
 } as const;
-
-
 
 type FeedEntry = {
   "yt:videoId": string;
@@ -77,16 +78,16 @@ type Feed = {
 };
 
 const Cors = {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, ",
-    "Access-Control-Allow-Headers": "*",
-}
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, ",
+  "Access-Control-Allow-Headers": "*",
+};
 
 const ResponseHeaders = {
   headers: {
-    ...Cors
-  }
-}
+    ...Cors,
+  },
+};
 
 const HTTPResponse = {
   OK: new Response("OK", { status: 200, ...ResponseHeaders }),
@@ -102,6 +103,8 @@ enum PostMethod {
   AddByURL = "add_by_url",
   AddToWatchlist = "add_to_watchlist",
   DeleteById = "delete_by_id",
+  SetNotifyState = "set_notify_state",
+  SetDownloadState = "set_download_state",
 }
 
 const Manager = {
@@ -192,7 +195,6 @@ const postHandler = async (req: Request) => {
       } catch (_e) {
         return HTTPResponse.INTERNAL_SERVER_ERROR;
       }
-
     }
     case PostMethod.AddToWatchlist: {
       const video_id = params.get("video_id");
@@ -245,6 +247,30 @@ const postHandler = async (req: Request) => {
 
       return HTTPResponse.OK;
     }
+    case PostMethod.SetNotifyState: {
+      const id = params.get("channel_id");
+
+
+      if (!id || !params.has("value")) {
+        return HTTPResponse.BAD_REQUEST("channel_id and value are required");
+      }
+
+      const value = JSON.parse((params.get("value") || 0).toString());
+      await kv.set(["notify", id], value);
+
+      return HTTPResponse.OK;
+    }
+    case PostMethod.SetDownloadState: {
+      const id = params.get("channel_id");
+
+      if (!id || !params.has("value")) {
+        return HTTPResponse.BAD_REQUEST("channel_id and value are required");
+      }
+
+      const value = JSON.parse((params.get("value") || 0).toString());
+      await kv.set(["download", id], value);
+      return HTTPResponse.OK;
+    }
   }
 
   return HTTPResponse.METHOD_NOT_ALLOWED;
@@ -258,21 +284,25 @@ const getHandler = async (req: Request) => {
     }
     case "/manage": {
       const channels = await Helpers.get_channels();
-      const data: { id: string; title: string; last_at: string }[] = [];
+      const data: { id: string; title: string; last_at: string; notify: boolean }[] = [];
 
       for (const channel_id of channels) {
+        const notify = !!(await kv.get(["notify", channel_id])).value;
+
         try {
           const rss = JSON.parse(await Deno.readTextFile(`./data/${channel_id}.json`)) as Feed;
           data.push({
             id: channel_id,
             title: rss.feed.title,
             last_at: Array.isArray(rss.feed.entry) ? rss.feed.entry[0].published : rss.feed.entry.published,
+            notify,
           });
         } catch (_e) {
           data.push({
             id: channel_id,
             title: "N/A (not fetched yet)",
             last_at: new Date(0).toISOString(),
+            notify,
           });
         }
       }
@@ -457,6 +487,12 @@ async function queueHandlerRSSFetcher({ channel_id }: { channel_id: string }) {
       logger.info(
         `[queueHandlerRSSFetcher] Added ${is_short ? "short" : "video"} "${video.title} (${video["yt:videoId"]})" / "${data.feed.title}" (${channel_id})`,
       );
+
+      // check if we should notify
+      const notify = await kv.get(["notify", channel_id]);
+      if (notify.value) {
+        await asyncTaskKV.enqueue({ type: QueueType.NOTIFY, video });
+      }
     }
   } catch (e) {
     logger.error(`[queueHandlerRSSFetcher] Failed to add video for channel ${channel_id}`, e);
@@ -542,9 +578,12 @@ try {
 }
 
 const eta = new Eta({ views: "./templates" });
+
+// Global kv store
 const kv = await Deno.openKv(join(SETTINGS.DATA_PATH, "./kv.store"));
 
-const startedAt = Date.now();
+// KV queue async task
+const asyncTaskKV = await Deno.openKv(join(SETTINGS.DATA_PATH, "./kvqueue.store"));
 
 Deno.cron("UPDATE_QUEUE", SETTINGS.CRON_QUEUE_UPDATE, cronHandlerUpdateQueue);
 Deno.cron("FEED_BUILDER", SETTINGS.CRON_FEED_BUILDER, cronHandlerFeedBuilder);
@@ -555,6 +594,47 @@ Deno.cron("FEED_BUILDER", SETTINGS.CRON_FEED_BUILDER, cronHandlerFeedBuilder);
  * and it may cause rate limit or requests bottleneck.
  */
 kv.listenQueue(queueHandlerRSSFetcher);
+
+enum QueueType {
+  NOTIFY = "notify",
+}
+
+asyncTaskKV.listenQueue(async ({ type, ...args }) => {
+  switch (type) {
+    case QueueType.NOTIFY: {
+      if (!SETTINGS.GOTIFY_URL) {
+        logger.warn(`[asyncTaskKV.Notify] Gotify URL is not set, skipping notification`);
+        return
+      }
+
+      const video: FeedEntry = args.video;
+      await fetch(SETTINGS.GOTIFY_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: video.author.name,
+          priority: 2,
+          title: video.title,
+          extras: {
+            "client::notification": {
+              bigImageUrl: video["media:group"]["media:thumbnail"]["@url"],
+              click: {
+                url: video.link["@href"],
+              },
+            },
+          },
+        }),
+      });
+
+      logger.info(`[asyncTaskKV.Notify] Sent notification for "${video.title}" (${video.author.name})`);
+      return;
+    }
+    default:
+      break;
+  }
+});
 
 cronHandlerFeedBuilder();
 cronHandlerUpdateQueue();
