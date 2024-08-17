@@ -142,9 +142,10 @@
   <main>
     <section class="menu">
       <label for="dark-mode">🌙</label>
-<% if (it.settings.ALLOW_SHORTS) { %>
-<label for="filter-shorts">🩳</label>
-<% } %>
+      <% if (it.settings.ALLOW_SHORTS) { %>
+      <label for="filter-shorts">🩳</label>
+      <% } %>
+      <label for="settings"><a href="/manage">⚙️</a></label>
 
     </section>
     <aside>Last build: <%= new Date().toISOString() %></aside>
