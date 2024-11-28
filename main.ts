@@ -3,6 +3,11 @@ import { Eta } from "https://deno.land/x/eta/src/index.ts";
 import Logger from "https://deno.land/x/logger/logger.ts";
 import { DOMParser } from "https://deno.land/x/deno_dom/deno-dom-wasm.ts";
 import { join } from "https://deno.land/std/path/mod.ts";
+import { parse } from "https://deno.land/x/xml@5.4.16/mod.ts";
+import { Eta } from "https://deno.land/x/eta@v3.5.0/src/index.ts";
+import Logger from "https://deno.land/x/logger@v1.1.7/logger.ts";
+import { DOMParser } from "https://deno.land/x/deno_dom@v0.1.48/deno-dom-wasm.ts";
+import { join } from "https://deno.land/std@0.224.0/path/mod.ts";
 
 const UA = "curl/7.64.1";
 const logger = new Logger();
