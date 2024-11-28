@@ -1,8 +1,8 @@
-import { parse } from "https://deno.land/x/xml/mod.ts";
-import { Eta } from "https://deno.land/x/eta/src/index.ts";
-import Logger from "https://deno.land/x/logger/logger.ts";
-import { DOMParser } from "https://deno.land/x/deno_dom/deno-dom-wasm.ts";
-import { join } from "https://deno.land/std/path/mod.ts";
+import { parse } from "https://deno.land/x/xml@5.4.16/mod.ts";
+import { Eta } from "https://deno.land/x/eta@v3.5.0/src/index.ts";
+import Logger from "https://deno.land/x/logger@v1.1.7/logger.ts";
+import { DOMParser } from "https://deno.land/x/deno_dom@v0.1.48/deno-dom-wasm.ts";
+import { join } from "https://deno.land/std@0.224.0/path/mod.ts";
 
 const UA = "curl/7.64.1";
 const logger = new Logger();
@@ -11,7 +11,7 @@ const startedAt = Date.now();
 const DATA_PATH = Deno.env.get("TUBE_DATA_PATH") || "./data";
 
 const SETTINGS = {
-  PORT: Number(Deno.env.get("TUBE_PORT")) || 8000,
+  PORT: Number(Deno.env.get("TUBE_PORT")) || 8888,
 
   /**
    * Path to store internal data
@@ -46,13 +46,27 @@ const SETTINGS = {
   FETCH_INTERVAL: Number(Deno.env.get("TUBE_FETCH_INTERVAL")) || 1,
 
   /**
-   * If true, will allow shorts to be processed and added in the feed.
+   * If true, will allow shorts to be visible in the feed.
    */
   ALLOW_SHORTS: !!JSON.parse(Deno.env.get("TUBE_ALLOW_SHORTS") || "false"),
 
+  /**
+   * The URL used as link on each video. The id of the vido is added at the end.
+   * Can be used to use the embed (fullscreen-ish) link or a different youtube frontend such as invidious
+   */
   YOUTUBE_FRONTEND: Deno.env.get("TUBE_YOUTUBE_FRONTEND") || "https://www.youtube.com/watch?v=",
 
+  /**
+   * A gotify endpoint URL to send a notification on new video.
+   * See: https://gotify.net/
+   */
   GOTIFY_URL: Deno.env.get("TUBE_GOTIFY_URL") || false,
+
+  /**
+   * Used to format date and time to the specified locale (eg: en or fr-FR ect...)
+   * See: https://en.wikipedia.org/wiki/IETF_language_tag
+   */
+  LOCALE: Deno.env.get('TUBE_LOCALE'),
 } as const;
 
 type FeedEntry = {
@@ -90,7 +104,21 @@ const ResponseHeaders = {
 };
 
 const HTTPResponse = {
-  OK: new Response("OK", { status: 200, ...ResponseHeaders }),
+  OK(req) {
+    const referer = req.headers.get('referer')
+    if (!referer) {
+      return new Response("OK", { status: 200, ...ResponseHeaders })
+    }
+
+    const headers = new Headers({
+      location: new URL(referer),
+    });
+    
+    return new Response(null, {
+      status: 302,
+      headers,
+    });
+  },
   ALREADY_EXISTS: new Response("ALREADY_EXISTS", { status: 409, ...ResponseHeaders }),
   BAD_REQUEST: (reason: string) => new Response("Bad Request: " + reason, { status: 400, ...ResponseHeaders }),
   NOT_FOUND: new Response("Not Found", { status: 404, ...ResponseHeaders }),
@@ -99,12 +127,9 @@ const HTTPResponse = {
 };
 
 enum PostMethod {
-  AddById = "add_by_id",
   AddByURL = "add_by_url",
-  AddToWatchlist = "add_to_watchlist",
   DeleteById = "delete_by_id",
   SetNotifyState = "set_notify_state",
-  SetDownloadState = "set_download_state",
 }
 
 const Manager = {
@@ -112,16 +137,14 @@ const Manager = {
     const channels = await Helpers.get_channels();
 
     if (channels.indexOf(id) !== -1) {
-      return HTTPResponse.ALREADY_EXISTS;
+      throw HTTPResponse.ALREADY_EXISTS;
     }
 
-    await Deno.writeTextFile(SETTINGS.SUBSCRIPTIONS_FILE, `${id}\n`, {
+    await Deno.writeTextFile(SETTINGS.SUBSCRIPTIONS_FILE, `\n${id}`, {
       append: true,
     });
 
     await Helpers.enqueue(id, 0);
-
-    return HTTPResponse.OK;
   },
   async add_by_url(url: string): Promise<Response> {
     const re = [
@@ -141,7 +164,7 @@ const Manager = {
     }
 
     if (matches.video_id) {
-      return HTTPResponse.BAD_REQUEST("URL of a video is not supported yet");
+      throw HTTPResponse.BAD_REQUEST("URL of a video is not supported yet");
     }
 
     if (matches.username) {
@@ -160,59 +183,38 @@ const Manager = {
         return Manager.add_by_url(link);
       }
 
-      return HTTPResponse.NOT_FOUND;
+      throw HTTPResponse.NOT_FOUND;
     }
 
-    return HTTPResponse.BAD_REQUEST("Invalid URL");
+    throw HTTPResponse.BAD_REQUEST("Invalid URL");
   },
 };
 
 const postHandler = async (req: Request) => {
   const params = new URL(req.url).searchParams;
+  const body = await req.text();
+  const data = new URLSearchParams(body);
 
   switch (params.get("method")) {
-    case PostMethod.AddById: {
-      const id = params.get("channel_id");
-      if (!id) {
-        return new Response("channel_id is required", { status: 400 });
-      }
-
-      try {
-        return Manager.add_by_id(id);
-      } catch (_e) {
-        return HTTPResponse.INTERNAL_SERVER_ERROR;
-      }
-    }
     case PostMethod.AddByURL: {
-      const url = params.get("url");
+      const url = data.get('url');
 
       if (!url) {
         return HTTPResponse.BAD_REQUEST("url is required");
       }
 
       try {
-        return Manager.add_by_url(url);
-      } catch (_e) {
+        await Manager.add_by_url(url);
+        return HTTPResponse.OK(req);
+      } catch (error) {
+        if (error instanceof Response) {
+          return error;
+        }
         return HTTPResponse.INTERNAL_SERVER_ERROR;
       }
     }
-    case PostMethod.AddToWatchlist: {
-      const video_id = params.get("video_id");
-
-      if (!video_id) {
-        return HTTPResponse.BAD_REQUEST("video_id is required");
-      }
-
-      const record = await kv.get(["watchlist", video_id]);
-      if (record.value !== null) {
-        return HTTPResponse.ALREADY_EXISTS;
-      }
-
-      await kv.set(["watchlist", video_id], { addedAt: new Date() });
-      return new Response("OK", { status: 200 });
-    }
     case PostMethod.DeleteById: {
-      const id = params.get("channel_id");
+      const id = data.get("channel_id");
       if (!id) {
         return HTTPResponse.BAD_REQUEST("channel_id is required");
       }
@@ -233,43 +235,19 @@ const postHandler = async (req: Request) => {
       await Deno.remove(`./data/${id}.json`);
       await kv.delete(["channel", id]);
 
-      const redirect = params.get("redirect");
-
-      if (redirect) {
-        const headers = new Headers({
-          location: new URL(req.url).origin + redirect,
-        });
-        return new Response(null, {
-          status: 302,
-          headers,
-        });
-      }
-
-      return HTTPResponse.OK;
+      return HTTPResponse.OK(req);
     }
     case PostMethod.SetNotifyState: {
-      const id = params.get("channel_id");
+      const id = data.get("channel_id");
 
-
-      if (!id || !params.has("value")) {
-        return HTTPResponse.BAD_REQUEST("channel_id and value are required");
+      if (!id) {
+        return HTTPResponse.BAD_REQUEST("channel_id is required");
       }
 
-      const value = JSON.parse((params.get("value") || 0).toString());
+      const value = data.get("value") === "on";
       await kv.set(["notify", id], value);
 
-      return HTTPResponse.OK;
-    }
-    case PostMethod.SetDownloadState: {
-      const id = params.get("channel_id");
-
-      if (!id || !params.has("value")) {
-        return HTTPResponse.BAD_REQUEST("channel_id and value are required");
-      }
-
-      const value = JSON.parse((params.get("value") || 0).toString());
-      await kv.set(["download", id], value);
-      return HTTPResponse.OK;
+      return HTTPResponse.OK(req);
     }
   }
 
@@ -279,6 +257,11 @@ const postHandler = async (req: Request) => {
 const getHandler = async (req: Request) => {
   switch (new URL(req.url).pathname) {
     case "/": {
+      const params = new URL(req.url).searchParams;
+      if (params.get('force')) {
+        cronHandlerFeedBuilder();
+      }
+
       const html = await Deno.open(join(SETTINGS.PUBLIC_PATH, "index.html"));
       return new Response(html.readable, { status: 200 });
     }
@@ -309,7 +292,7 @@ const getHandler = async (req: Request) => {
 
       data.sort((a, b) => new Date(b.last_at).getTime() - new Date(a.last_at).getTime());
 
-      const html = await eta.render("./manage.eta", { data });
+      const html = await eta.render("./manage.eta", { data, settings: SETTINGS });
       return new Response(html, { status: 200, headers: { "Content-Type": "text/html" } });
     }
     default: {
