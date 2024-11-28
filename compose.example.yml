@@ -1,0 +1,9 @@
+services:
+  tube:
+    image: yadomi/tube
+    user: 1000:1000
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./data:/app/data      # internal data used by Tube (eg: channel ids, queues, user settings ect...)
+      - ./public:/app/public  # public data used by Tube (eg: generated index.html ect...)

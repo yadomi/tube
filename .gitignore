@@ -2,5 +2,4 @@ data/*
 public/*
 
 .vscode/*
-
-feeds.txt
+compose.yml
