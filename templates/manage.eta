@@ -10,13 +10,41 @@
       font-family: Iowan Old Style, Apple Garamond, Baskerville, Times New Roman, Droid Serif, Times, Source Serif Pro, serif, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol;
     }
 
+
+    body > form {
+      margin-bottom: 32px;
+    }
+    body > form input {
+      font-size: 32px;
+    }
+
+    body, table {
+      margin: 0 auto;
+      width: 1100px
+    }
+
     table tbody tr:hover {
       background-color: #ddd;
     }
+
+    table tbody td:nth-child(2) {
+      min-width: 384px;
+    }
+
+    table tbody td:last-child {
+      display: flex;
+    }
+
+
   </style>
 </head>
 <body>
   <h1>manage</h1>
+
+  <form action="/?method=add_by_url" method="POST">
+    <input type="text" name="url" placeholder="https://youtube.com/... "/><input type="submit" value="add"/>
+  </form>
+
   <table>
     <thead>
       <tr>
@@ -54,15 +82,19 @@
             <%= channel.title %>
           </a>
           </td>
-          <td><%= channel.last_at %> - <%= rtf.format(Math.floor(relative * -1 / TIME_UNITS.find(u => u.name === unit(relative)).ms), unit(relative)) %></td>
+          <td><%= new Date(channel.last_at).toLocaleDateString(it.settings.LOCALE) %> - <%= rtf.format(Math.floor(relative * -1 / TIME_UNITS.find(u => u.name === unit(relative)).ms), unit(relative)) %></td>
           <td>
-          <button type="button" data-method="delete_by_id" data-reload data-channel_id="<%= channel.id%>">
-            Delete
-          </button>
-          <label>
-            Notify
-            <input type="checkbox" data-method="set_notify_state" data-channel_id="<%= channel.id%>" <% if (channel.notify) { %> checked <% } %> />
-          </label>
+
+          <form method="post" action="?method=delete_by_id">
+              <input type="submit" value="delete" />
+              <input type="hidden" name="channel_id" value="<%= channel.id%>" />
+          </form>
+
+          <form method="post" action="?method=set_notify_state">
+              <label>notify <input data-submit type="checkbox" name="value" <% if (channel.notify) { %> checked="checked" <% } %> /></label>
+              <input type="hidden" name="channel_id" value="<%= channel.id%>" />
+          </form>
+          
           </td>
           </tr>
           <% }) %>
@@ -72,33 +104,16 @@
   <script type="text/javascript">
     (() => {
 
-      document.body.addEventListener('click', async (e) => {
-        if (e.target.dataset.method) {
-          const url = new URLSearchParams();
+      document.addEventListener('click', (event) => {
+        const x = event.target.dataset
 
-          for (const key in e.target.dataset) {
-            url.append(key, e.target.dataset[key].toString());
-          }
-
-          if (e.target.type === 'checkbox') {
-            url.append('value', e.target.checked.toString());
-          }
-
-          const response = await fetch(`/?` + url.toString(), {
-            method: 'POST',
-          });
-
-          if (response.ok) {
-            if ("reload" in e.target.dataset) {
-              location.reload();
-            }
-          } else {
-            console.error(response.statusText);
-          }
-
+        if ("submit" in x) {        
+          event.preventDefault();
+          event.target.form.submit()
         }
+    
+      })
 
-      });
     })()
   </script>
 </body>

@@ -13,9 +13,14 @@
       --article-text-color: #333;
       --article-visited-color: #828282;
       --article-meta-color: #828282;
+      --thumbnail-height: 112px;
+      --title-padding-bottom: 12px;
+      --title-font-size: 20px;
+      --meta-font-size: 16px;
+      --article-margin-bottom: 16px;
     }
 
-    #dark-mode:checked~main {
+    [id="ui-dark"]:checked ~ main {
       --body-bg-color: #020202;
       --body-text-color: #e0e0e0;
       --article-bg-color: #0b0b0b;
@@ -24,33 +29,50 @@
       --article-meta-color: #777;
     }
 
+    [id="ui-compact"]:checked ~ main {
+      --thumbnail-height: 64px;
+      --title-padding-bottom: 4px;
+      --title-font-size: 14px;
+      --meta-font-size: 10px;
+      --article-margin-bottom: 6px;
+    }
+
+    body > input[type="checkbox"] {
+      display: none
+    }
+
+    html, body {
+      height: 100%;
+    }
+
     main {
       background-color: var(--body-bg-color);
       color: var(--body-text-color);
       padding: 0 10%;
+      flex: 1;
+    }
+
+    @media (orientation: portrait) {
+      main {
+        padding: 0 8px;
+      }
     }
 
     body {
       font-family: Menlo, Consolas, Monaco, Liberation Mono, Lucida Console, monospace;
       margin: 0;
       padding: 0;
+      display: flex;
+      flex-direction: column;
     }
 
-
-    @media (max-width: 480px) {
-
-      main {
-        padding: 0 2%;
-      }
-    }
-
-    main>h1 {
-      font-size: 16px;
+    main > h1 {
+      font-size: 0.9em;
       font-weight: normal;
-      padding-bottom: 8px;
-      margin-top: 12px;
-      margin-bottom: 12px;
-      font-variant: small-caps;
+      padding-top: 12px;
+      padding-bottom: 12px;
+      margin: 0;
+      text-transform: lowercase;
     }
 
     .article:hover {
@@ -60,22 +82,24 @@
     .article {
       border-radius: 4px;
       display: grid;
-      grid-template-columns: 96px 1fr 1fr;
+      grid-template-columns: calc(var(--thumbnail-height) * 2) 1fr;
+      transition: grid-template-columns .2s ease;
+      grid-template-rows: auto 1fr;
       gap: 0px 0px;
       grid-auto-flow: row;
       grid-template-areas:
-        "thumbnail title title actions"
-        "thumbnail meta meta actions";
-      margin-bottom: 10px;
+        "thumbnail title"
+        "thumbnail meta";
+      margin-bottom: var(--article-margin-bottom);
       text-decoration: none;
     }
 
     .article h2 {
       color: var(--article-text-color);
+      padding-bottom: var(--title-padding-bottom);
       text-decoration: none;
-      font-size: 16px;
+      font-size: var(--title-font-size);
       margin: 0;
-      padding: 0;
       display: flex;
       font-weight: normal;
       grid-area: title;
@@ -86,7 +110,7 @@
     }
 
     .article span {
-      font-size: 12px;
+      font-size: var(--meta-font-size);
       grid-area: meta;
       color: var(--article-meta-color);
     }
@@ -94,17 +118,11 @@
     .article img {
       grid-area: thumbnail;
       display: flex;
-      --height: 42px;
-      height: var(--height);
-      width: calc(var(--height) * (16/9));
+      height: var(--thumbnail-height);
+      width: calc(var(--thumbnail-height) * (16/9));
+      transition: width .2s ease, height .2s ease;
       object-fit: cover;
       border-radius: 4px;
-    }
-
-    .menu {
-      display: flex;
-      justify-content: center;
-      padding-top: 24px;
     }
 
     aside {
@@ -114,41 +132,39 @@
       left: 4px;
     }
 
-    .menu label {
-      padding: 8px;
+    section.menu {
+      display: flex;
+      position: fixed;
+      bottom: 4px;
+      right: 4px;
+
+    }
+    section.menu label, section.menu a {
+      text-decoration: none;
+      border: none;
+      background: none;
+      font-size: 10px;
+      display: flex;
+      color: var(--body-text-color);
+      padding: 0 8px;
       cursor: pointer;
-      border-radius: 4px;
-      margin-right: 8px;
-    }
-
-    .menu label:hover {
-      background-color: var(--article-bg-color);
-    }
-
-    input[type="checkbox"] {
-      display: none;
-    }
-
-    #filter-shorts:checked~main .article[data-is-short="true"] {
-      display: none;
+      line-height: normal;
+      width: auto;
+      margin: 0;
     }
   </style>
 </head>
 
 <body>
-  <input type="checkbox" id="dark-mode" />
-  <input type="checkbox" id="filter-shorts" />
-
+  <input type="checkbox" id="ui-dark"/>
+  <input type="checkbox" id="ui-compact"/>
   <main>
     <section class="menu">
-      <label for="dark-mode">🌙</label>
-      <% if (it.settings.ALLOW_SHORTS) { %>
-      <label for="filter-shorts">🩳</label>
-      <% } %>
-      <label for="settings"><a href="/manage">⚙️</a></label>
-
+      <form><label for="ui-dark">dark</label></form>
+      <form><label for="ui-compact">compact</label></form>
+      <a href="/manage">manage</a>
     </section>
-    <aside>Last build: <%= new Date().toISOString() %></aside>
+    <aside><%= new Date().toLocaleString(it.settings.LOCALE) %></aside>
     <%
       let previousDate = null;
 
@@ -162,12 +178,12 @@
         const relativeUnit = diffInHours < 1 ? 'minutes' : 'hours';
         const relativeTime = { minutes: diffInMinutes, hours: diffInHours }[relativeUnit];
 
-        const rtf = new Intl.RelativeTimeFormat('en', { localeMatcher: "best fit", numeric: "always", style: "long" })
+        const rtf = new Intl.RelativeTimeFormat(it.settings.LOCALE, { localeMatcher: "best fit", numeric: "always", style: "long" })
         if (previousDate !== publishedAt.getDay()) {
     %>
 
     <h1>
-      <%= publishedAt.toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' }) %>
+      <%= publishedAt.toLocaleDateString(it.settings.LOCALE, { weekday: 'short', month: 'short', day: 'numeric' }) %>
     </h1>
 
     <%
@@ -175,18 +191,42 @@
         }
     %>
 
-    <a class="article" target="_blank" href="<%= item.link %>" data-is-in-watchlist="<%= item.is_in_watchlist %>" data-is-short="<%= item.is_short %>">
+    <a class="article" target="_blank" href="<%= item.link %>">
       <img loading="lazy" src="<%= item.thumbnail %>" alt="" />
       <h2>
         <%= item.title %>
       </h2>
       <span>
         <%= item.author.name %> -
-        <span title="<%= publishedAt.toLocaleTimeString() %>"><%= rtf.format(relativeTime * -1, relativeUnit) %></span>
+        <span title="<%= publishedAt.toLocaleString(it.settings.LOCALE) %>"><%= rtf.format(relativeTime * -1, relativeUnit) %></span>
       </span>
     </a>
     <% } %>
   </main>
+
+  <script type="text/javascript">
+    (() => {
+      const url = new URL(window.location)
+
+      for (const [k] of url.searchParams) {
+        const e = document.getElementById(k)
+        if (e) e.checked = true
+      }
+
+
+      document.addEventListener('change', event => {
+        if (event.target.id.startsWith('ui')) {
+
+          const value = url.searchParams.get(event.target.id)
+          value
+            ? url.searchParams.delete(event.target.id)
+            : url.searchParams.set(event.target.id, 1)
+
+          history.pushState({}, "", url);
+        }
+      })
+    })()
+  </script>
 </body>
 
 </html>
