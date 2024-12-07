@@ -39,7 +39,7 @@
   </style>
 </head>
 <body>
-  <h1>manage</h1>
+  <h1>manage (<%= it.data.length %>)</h1>
 
   <form action="/?method=add_by_url" method="POST">
     <input type="text" name="url" placeholder="https://youtube.com/... "/><input type="submit" value="add"/>
@@ -94,7 +94,7 @@
               <label>notify <input data-submit type="checkbox" name="value" <% if (channel.notify) { %> checked="checked" <% } %> /></label>
               <input type="hidden" name="channel_id" value="<%= channel.id%>" />
           </form>
-          
+
           </td>
           </tr>
           <% }) %>
@@ -107,11 +107,11 @@
       document.addEventListener('click', (event) => {
         const x = event.target.dataset
 
-        if ("submit" in x) {        
+        if ("submit" in x) {
           event.preventDefault();
           event.target.form.submit()
         }
-    
+
       })
 
     })()
