@@ -57,12 +57,6 @@ const SETTINGS = {
   YOUTUBE_FRONTEND: Deno.env.get("TUBE_YOUTUBE_FRONTEND") || "https://www.youtube.com/watch?v=",
 
   /**
-   * A gotify endpoint URL to send a notification on new video.
-   * See: https://gotify.net/
-   */
-  GOTIFY_URL: Deno.env.get("TUBE_GOTIFY_URL") || false,
-
-  /**
    * Used to format date and time to the specified locale (eg: en or fr-FR ect...)
    * See: https://en.wikipedia.org/wiki/IETF_language_tag
    */
@@ -474,7 +468,7 @@ async function queueHandlerRSSFetcher({ channel_id }: { channel_id: string }) {
       // check if we should notify
       const notify = await kv.get(["notify", channel_id]);
       if (notify.value) {
-        await asyncTaskKV.enqueue({ type: QueueType.NOTIFY, video });
+        // TODO: actually dispatch the notification 
       }
     }
   } catch (e) {
@@ -565,9 +559,6 @@ const eta = new Eta({ views: "./templates" });
 // Global kv store
 const kv = await Deno.openKv(join(SETTINGS.DATA_PATH, "./kv.store"));
 
-// KV queue async task
-const asyncTaskKV = await Deno.openKv(join(SETTINGS.DATA_PATH, "./kvqueue.store"));
-
 Deno.cron("UPDATE_QUEUE", SETTINGS.CRON_QUEUE_UPDATE, cronHandlerUpdateQueue);
 Deno.cron("FEED_BUILDER", SETTINGS.CRON_FEED_BUILDER, cronHandlerFeedBuilder);
 
@@ -577,47 +568,6 @@ Deno.cron("FEED_BUILDER", SETTINGS.CRON_FEED_BUILDER, cronHandlerFeedBuilder);
  * and it may cause rate limit or requests bottleneck.
  */
 kv.listenQueue(queueHandlerRSSFetcher);
-
-enum QueueType {
-  NOTIFY = "notify",
-}
-
-asyncTaskKV.listenQueue(async ({ type, ...args }) => {
-  switch (type) {
-    case QueueType.NOTIFY: {
-      if (!SETTINGS.GOTIFY_URL) {
-        logger.warn(`[asyncTaskKV.Notify] Gotify URL is not set, skipping notification`);
-        return
-      }
-
-      const video: FeedEntry = args.video;
-      await fetch(SETTINGS.GOTIFY_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: video.author.name,
-          priority: 2,
-          title: video.title,
-          extras: {
-            "client::notification": {
-              bigImageUrl: video["media:group"]["media:thumbnail"]["@url"],
-              click: {
-                url: video.link["@href"],
-              },
-            },
-          },
-        }),
-      });
-
-      logger.info(`[asyncTaskKV.Notify] Sent notification for "${video.title}" (${video.author.name})`);
-      return;
-    }
-    default:
-      break;
-  }
-});
 
 cronHandlerFeedBuilder();
 cronHandlerUpdateQueue();
