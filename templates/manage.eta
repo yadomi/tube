@@ -27,12 +27,14 @@
       background-color: #ddd;
     }
 
-    table tbody td:nth-child(2) {
+    table tbody td:first-child {
       min-width: 384px;
     }
 
     table tbody td:last-child {
       display: flex;
+      justify-content: space-between;
+      min-width: 128px;
     }
 
 
@@ -48,9 +50,9 @@
   <table>
     <thead>
       <tr>
-        <th>ID</th>
         <th>Title</th>
         <th>Last released video</th>
+        <th>ID</th>
         <th>Actions</th>
       </tr>
     </thead>
@@ -73,31 +75,32 @@
             x = Math.abs(x);
             return TIME_UNITS.find(unit => x >= unit.ms).name;
         }
-        const rtf = new Intl.RelativeTimeFormat('en');
+        const rtf = new Intl.RelativeTimeFormat(it.settings.LOCALE);
         const relative = Date.now() - new Date(channel.last_at).getTime()
       %>
-        <td><%= channel.id %></td>
+        
         <td>
           <a target="_blank" href="https://youtube.com/channel/<%= channel.id %>">
             <%= channel.title %>
           </a>
-          </td>
-          <td><%= new Date(channel.last_at).toLocaleDateString(it.settings.LOCALE) %> - <%= rtf.format(Math.floor(relative * -1 / TIME_UNITS.find(u => u.name === unit(relative)).ms), unit(relative)) %></td>
-          <td>
-
+        </td>
+        <td>
+          <%= new Date(channel.last_at).toLocaleDateString(it.settings.LOCALE) %> - <%= rtf.format(Math.floor(relative * -1 / TIME_UNITS.find(u => u.name === unit(relative)).ms), unit(relative)) %>
+        </td>
+        <td><%= channel.id %></td>
+        <td>
           <form method="post" action="?method=delete_by_id">
               <input type="submit" value="delete" />
               <input type="hidden" name="channel_id" value="<%= channel.id%>" />
           </form>
-
           <form method="post" action="?method=set_notify_state">
               <label>notify <input data-submit type="checkbox" name="value" <% if (channel.notify) { %> checked="checked" <% } %> /></label>
               <input type="hidden" name="channel_id" value="<%= channel.id%>" />
           </form>
-
-          </td>
-          </tr>
-          <% }) %>
+        </td>
+        
+      </tr>
+      <% }) %>
 
     </tbody>
     </table>
