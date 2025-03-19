@@ -80,6 +80,7 @@
     }
 
     .article {
+      position: relative;
       border-radius: 4px;
       display: grid;
       grid-template-columns: calc(var(--thumbnail-height) * 2) 1fr;
@@ -92,6 +93,16 @@
         "thumbnail meta";
       margin-bottom: var(--article-margin-bottom);
       text-decoration: none;
+    }
+
+    .article .duration {
+      position: absolute;
+      grid-area: inherit;
+      bottom: 5px;
+      left: 0;
+      padding: 2px 3px;
+      background: white;
+      border-radius: 0 4px 0 4px;
     }
 
     .article h2 {
@@ -107,6 +118,10 @@
 
     .article:visited h2 {
       color: var(--article-visited-color) !important;
+    }
+
+    .article h3 {
+      margin: 8px 0;
     }
 
     .article span {
@@ -194,12 +209,23 @@
     <a class="article" target="_blank" href="<%= item.link %>">
       <img loading="lazy" src="<%= item.thumbnail %>" alt="" />
       <h2>
-        <%= item.title %>
+        <%= item.titles.length > 0 ? item.titles[0].title : item.title %>
       </h2>
       <span>
         <%= item.author.name %> -
         <span title="<%= publishedAt.toLocaleString(it.settings.LOCALE) %>"><%= rtf.format(relativeTime * -1, relativeUnit) %></span>
+        <% if (item.titles.length > 0) { %>
+        <h3><%= item.title %></h3>
+        <% } %>
       </span>
+      <% if (item.duration > 0) { 
+        const hours = Math.floor(item.duration / 3600);
+        const minutes = Math.floor((item.duration % 3600) / 60);
+        const seconds = Math.floor(item.duration % 60);
+        const duration = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+      %>
+        <span class="duration"><%= duration %></span>
+      <% } %>
     </a>
     <% } %>
   </main>

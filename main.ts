@@ -61,6 +61,8 @@ const SETTINGS = {
    * See: https://en.wikipedia.org/wiki/IETF_language_tag
    */
   LOCALE: Deno.env.get('TUBE_LOCALE'),
+
+  DEARROW: !!JSON.parse(Deno.env.get('TUBE_DEARROW') || "true")
 } as const;
 
 type FeedEntry = {
@@ -441,6 +443,19 @@ async function queueHandlerRSSFetcher({ channel_id }: { channel_id: string }) {
         continue;
       }
 
+      let dearrow = {};
+      if (SETTINGS.DEARROW) {
+        try {
+          dearrow = await fetch(`https://sponsor.ajay.app/api/branding?videoID=${video["yt:videoId"]}`)
+            .then(res => res.json())  
+        } catch (e) {
+          logger.error(
+            `[DeArrow] Failed to fetch DeArrow information for "${video["yt:videoId"]}"`,
+            e,
+          );
+        }
+      }
+
       try {
         await kv.set(
           ["video", video["yt:videoId"]],
@@ -448,6 +463,7 @@ async function queueHandlerRSSFetcher({ channel_id }: { channel_id: string }) {
             channel_id,
             published_at: video.published,
             is_short: is_short,
+            extra_dearrow: dearrow,
           },
           {
             expireIn: Helpers.ms("7d"),
@@ -489,7 +505,7 @@ async function cronHandlerFeedBuilder() {
   for await (
     const {
       key,
-      value: { channel_id, is_short },
+      value: { channel_id, is_short, extra_dearrow },
     } of videos
   ) {
     const id = key.at(-1);
@@ -522,16 +538,23 @@ async function cronHandlerFeedBuilder() {
       continue;
     }
 
-    response.push({
+    console.log(extra_dearrow);
+    
+
+    const data = {
       title: video.title,
+      titles: extra_dearrow?.titles?.sort((a, b) => a.votes - b.votes) || [],
+      duration: extra_dearrow?.videoDuration || 0,
       video_id: video["yt:videoId"],
       link: `${SETTINGS.YOUTUBE_FRONTEND}${video["yt:videoId"]}`,
       published_at: video.published,
       author: video.author,
       thumbnail: video["media:group"]["media:thumbnail"]["@url"],
-      // is_in_watchlist: watchlist.some(([videoId]) => videoId === video["yt:videoId"]),
       is_short,
-    });
+    }
+    console.log(data);
+    
+    response.push(data);
   }
 
   response.sort((a, b) => new Date(b.published_at).getTime() - new Date(a.published_at).getTime());
