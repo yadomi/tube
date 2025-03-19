@@ -43,12 +43,12 @@ const SETTINGS = {
    *  3600 channels with 1 second interval will take 1 hours to fetch all channels.
    *  1000 channels with 1 second interval will take ~16 minutes to fetch all channels.
    */
-  FETCH_INTERVAL: Number(Deno.env.get("TUBE_FETCH_INTERVAL")) || 1,
+  FETCH_INTERVAL: Number(Deno.env.get("TUBE_FETCH_INTERVAL")) || 5,
 
   /**
-   * If true, will allow shorts to be visible in the feed.
+   * If true, will hide shorts to in the feed.
    */
-  ALLOW_SHORTS: !!JSON.parse(Deno.env.get("TUBE_ALLOW_SHORTS") || "false"),
+  HIDE_SHORTS: !!JSON.parse(Deno.env.get("TUBE_HIDE_SHORTS") || "true"),
 
   /**
    * The URL used as link on each video. The id of the vido is added at the end.
@@ -439,9 +439,6 @@ async function queueHandlerRSSFetcher({ channel_id }: { channel_id: string }) {
       }
 
       const is_short = await Helpers.is_short(video["yt:videoId"]);
-      if (!SETTINGS.ALLOW_SHORTS && is_short) {
-        continue;
-      }
 
       let dearrow = {};
       if (SETTINGS.DEARROW) {
@@ -538,8 +535,9 @@ async function cronHandlerFeedBuilder() {
       continue;
     }
 
-    console.log(extra_dearrow);
-    
+    if (SETTINGS.HIDE_SHORTS && is_short) {
+      continue;
+    }
 
     const data = {
       title: video.title,
@@ -550,9 +548,7 @@ async function cronHandlerFeedBuilder() {
       published_at: video.published,
       author: video.author,
       thumbnail: video["media:group"]["media:thumbnail"]["@url"],
-      is_short,
     }
-    console.log(data);
     
     response.push(data);
   }
@@ -594,5 +590,7 @@ kv.listenQueue(queueHandlerRSSFetcher);
 
 cronHandlerFeedBuilder();
 cronHandlerUpdateQueue();
+
+console.log(JSON.stringify(SETTINGS, null, 2))
 
 await Deno.serve({ port: SETTINGS.PORT, hostname: "0.0.0.0" }, httpHandler);
