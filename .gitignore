@@ -1,5 +1,4 @@
-data/*
+cache/*
 public/*
-
-.vscode/*
 compose.yml
+tubefile.yml

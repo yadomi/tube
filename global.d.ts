@@ -1,0 +1,3 @@
+type TubeFile = {
+  channels: string[];
+};
